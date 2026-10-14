@@ -69,6 +69,7 @@
   "lái": "steer",
   "góc nhìn": "view",
   "xuống xe": "get out",
-  "Lên xe": "Get in"
+  "Lên xe": "Get in",
+  "{n} / {target} m": "{n} / {target} m"
  }
 }

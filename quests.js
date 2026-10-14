@@ -52,7 +52,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
   scene.add(group);
   const chests = new Map();   // index → mesh
   const marks = new Map();    // visit mission id → mesh
-  let state = null, near = null, sinceReport = 0, last = null, parksSeen = new Set(), time = 0, clockShown = '';
+  let state = null, near = null, sinceReport = 0, inFlight = 0, shownWalk = 0, last = null, parksSeen = new Set(), time = 0, clockShown = '';
 
   // ---- the tracker, top right, while outdoors: today's missions, the reward's rarity only, time left
   const tracker = document.createElement('div');
@@ -68,11 +68,14 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
     if (!state) return;
     clockShown = left();
     const chestsLeft = state.count - state.opened.length;
+    // walking: what the app has counted plus the metres walked since the last report, so the bar moves as you go
+    const have = (q) => (q.goal === 'walk' && !q.done ? Math.min(q.target, q.progress + Math.floor(inFlight + sinceReport)) : q.progress);
+    shownWalk = Math.floor(sinceReport);
     tracker.innerHTML = `<div class="ct-head"><small>${t('Nhiệm vụ hôm nay')}</small><b class="ct-clock" title="${t('Hết ngày, nhiệm vụ chưa xong sẽ mất phần thưởng')}">${t('Còn {time}', { time: clockShown })}</b></div>
       ${state.quests.map((q) => `<div class="ct-task r-${q.rarity}${q.done ? ' done' : ''}" title="${esc(q.story)}">
         <div class="ct-top"><span>${esc(q.name)}</span><em class="ct-gift">${q.claimed ? '✓' : RARITY_NAME[q.rarity]}</em></div>
-        <div class="ct-bar"><i style="width:${Math.min(100, q.progress / q.target * 100)}%"></i></div>
-        <small>${q.claimed ? t('Đã nhận') : q.done ? t('Đang xác nhận…') : `${q.progress}/${q.target}`}</small></div>`).join('')}
+        <div class="ct-bar"><i style="width:${Math.min(100, have(q) / q.target * 100)}%"></i></div>
+        <small>${q.claimed ? t('Đã nhận') : q.done ? t('Đang xác nhận…') : q.goal === 'walk' ? t('{n} / {target} m', { n: have(q), target: q.target }) : `${q.progress}/${q.target}`}</small></div>`).join('')}
       <div class="ct-row"><span class="ct-chest"></span>${t('Rương còn lại trên phố')}<em>${chestsLeft}/${state.count}</em></div>
       ${state.pending ? `<div class="ct-pending">${t('{n} phần thưởng đang chờ xác nhận', { n: state.pending })}</div>` : ''}`;
   }
@@ -144,6 +147,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
     get near() { return near; },
     get hint() { return near != null ? t('Mở rương') : ''; },
     onState(msg) {
+      inFlight = 0;   // the app's count now includes what was reported
       const fresh = !state || state.day !== msg.day || state.seed !== msg.seed;
       state = msg;
       if (fresh) { placeChests(); parksSeen = new Set(); }
@@ -173,7 +177,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       time += dt;
       const p = player.root.position, out = isOutdoors();
       tracker.classList.toggle('hidden', !out || !state);
-      if (out && state && left() !== clockShown) renderTracker();
+      if (out && state && (left() !== clockShown || Math.floor(sinceReport) !== shownWalk)) renderTracker();
       if (state && Date.now() / 1000 > state.ends_at) { state.ends_at = Infinity; call('cityState'); }   // a new day
       for (const [id, m] of marks) {
         m.userData.beam.material.opacity = 0.18 + 0.1 * Math.sin(time * 2.5);
@@ -199,7 +203,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       if (out && last) {
         const step = Math.hypot(p.x - last.x, p.z - last.z);
         if (step < 3) sinceReport += step;
-        if (sinceReport >= 150) { report({ walk: Math.round(sinceReport) }); sinceReport = 0; }
+        if (sinceReport >= 50) { report({ walk: Math.round(sinceReport) }); inFlight += Math.round(sinceReport); sinceReport = 0; }   // the app counts it (capped per report)
       }
       last = out ? p.clone() : null;
       // parks: once each per day
