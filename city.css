@@ -96,3 +96,17 @@
 .bag-slot.none .bag-ico3d { filter: brightness(.35) saturate(0); }
 .bag-big { float: right; width: 120px; height: 120px; margin: -6px -4px 0 8px; filter: drop-shadow(0 6px 14px color-mix(in srgb, var(--rc) 45%, transparent)); }
 .rc-icon3d { width: 150px; height: 150px; margin: 2px 0 6px; filter: drop-shadow(0 0 18px color-mix(in srgb, var(--rc) 70%, transparent)); }
+
+/* the reward card: a mission's prize carries a ribbon; several at once are numbered */
+.rc-ribbon { position: absolute; left: -2px; right: -2px; top: 14px; padding: 4px 0; text-align: center; font: 900 11px -apple-system, sans-serif; letter-spacing: .16em;
+  color: #0a0d14; background: linear-gradient(90deg, transparent, var(--rc) 12%, var(--rc) 88%, transparent); }
+#reward-card.mission .rc-front { padding-top: 42px; }
+.rc-count { position: absolute; right: 12px; bottom: 10px; font: 800 11px ui-monospace, Menlo, monospace; color: #aab3c2; }
+
+/* words popping up over people (bumps in the street) */
+#city-pops { position: fixed; inset: 0; pointer-events: none; z-index: 12; }
+.city-pop { position: absolute; left: 0; top: 0; padding: 4px 10px; white-space: nowrap; font: 800 14px -apple-system, sans-serif; color: #fff;
+  background: rgba(8,11,18,.82); border: 1px solid rgba(255,255,255,.25); clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  text-shadow: 0 1px 2px #000; }
+.city-pop.me { color: #ffd77a; border-color: rgba(255,215,122,.6); }
+.city-pop.them { color: #ffb3a8; border-color: rgba(255,140,120,.5); }

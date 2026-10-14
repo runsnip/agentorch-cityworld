@@ -403,7 +403,14 @@ export function createStreet(host) {
       car.speed += clamp(goal - car.speed, -10 * dt, 3.5 * dt);
       p.addScaledVector(fwdOf(car.heading), car.speed * dt);
       // the CEO on foot walking into a car: the car stops
-      if (!drive && p.distanceTo(player.root.position) < 2.2) { car.stopFor = 3; if (car.speed > 1 && honk <= 0) { beep(); honk = 1.5; } car.speed = 0; }
+      if (!drive && p.distanceTo(player.root.position) < 2.2) {
+        if (car.speed > 3 && p.distanceTo(player.root.position) < 1.6) {   // too late to stop: a nudge that sends the CEO aside
+          const away = player.root.position.clone().sub(p).setY(0).normalize();
+          knock(away.negate(), 1.2); shake = 0.45; stunned = 0.6; player.keys.clear();
+          pop(pick([t('Á! Xe!'), t('Suýt nữa thì…'), t('Đi xe kiểu gì vậy!')]), () => player.root.position);
+        }
+        car.stopFor = 3; if (car.speed > 1 && honk <= 0) { beep(); honk = 1.5; } car.speed = 0;
+      }
     }
     for (const car of cars) {
       car.group.rotation.y = car.heading;
@@ -414,20 +421,90 @@ export function createStreet(host) {
     }
   }
 
+  // ---- bumping into things: a word popping up over whoever says it, a stagger, the camera shaking
+  const pops = [];
+  const popLayer = document.createElement('div'); popLayer.id = 'city-pops'; document.body.append(popLayer);
+  function pop(text, at, kind = 'me') {
+    const el = document.createElement('div'); el.className = `city-pop ${kind}`; el.textContent = text;
+    popLayer.append(el);
+    pops.push({ el, at, t: 0 });
+  }
+  const _v = new THREE.Vector3();
+  function updatePops(dt) {
+    for (let i = pops.length - 1; i >= 0; i--) {
+      const p = pops[i]; p.t += dt;
+      const pos = typeof p.at === 'function' ? p.at() : p.at;
+      _v.copy(pos).setY(pos.y + 2.05 + p.t * 0.35).project(camera);
+      const vis = _v.z < 1 && p.t < 1.8;
+      p.el.style.transform = `translate(-50%, -100%) translate(${(_v.x * 0.5 + 0.5) * innerWidth}px, ${(-_v.y * 0.5 + 0.5) * innerHeight}px)`;
+      p.el.style.opacity = vis ? String(Math.min(1, (1.8 - p.t) * 2)) : '0';
+      if (p.t >= 1.8) { p.el.remove(); pops.splice(i, 1); }
+    }
+  }
+  const pick = (list) => list[Math.floor(Math.random() * list.length)];
+  const OUCH = { lamp: [t('Ui da!'), t('Cột đèn ở đâu ra vậy…'), t('Á, đầu tôi!')], tree: [t('Ui!'), t('Cây này mọc hồi nào?'), t('Á!')],
+    building: [t('Ối!'), t('Tường cứng thật…')], car: [t('Ui, xe ai đậu đây!'), t('Á!')] };
+  let shake = 0, stunned = 0, lastOuch = 0;
+  const knock = (dir, m) => { const p = player.root.position; p.addScaledVector(dir, -m); host.collide(p, 0.3); };
+  host.onEvent('bump', ({ kind, running, dir }) => {
+    if (!host.isOutdoors() || drive || stunned > 0) return;
+    if (!running) return;   // walking into something just stops you
+    const now = performance.now();
+    knock(dir.clone().normalize(), 0.55);
+    shake = 0.35; stunned = 0.45;
+    player.keys.clear();
+    if (now - lastOuch > 1500) { lastOuch = now; pop(pick(OUCH[kind] || OUCH.building), () => player.root.position); beep(160, 0.12); }
+    host.track?.('city_bump', { kind });
+  });
+  // people: they don't let you walk through them; run into one and they stagger and tell you about it
+  const SORRY = [t('Xin lỗi nha!'), t('Ơ, cẩn thận chứ!'), t('Sếp đi đâu vội vậy?'), t('Ui, giật cả mình!')];
+  const ANGRY = [t('Đi đứng kiểu gì vậy!'), t('Á! Nhìn đường chứ!'), t('Chạy như ma đuổi…'), t('Trời ơi, cái chân tôi!')];
+  let lastPos = null, mySpeed = 0;
+  function bumpPeople(dt) {
+    const me = player.root.position;
+    if (lastPos) mySpeed = mySpeed * 0.8 + (Math.hypot(me.x - lastPos.x, me.z - lastPos.z) / Math.max(dt, 1e-3)) * 0.2;
+    lastPos = (lastPos || new THREE.Vector3()).copy(me);
+    if (drive) return;
+    for (const p of people) {
+      const pos = p.char.root.position, dx = me.x - pos.x, dz = me.z - pos.z, d = Math.hypot(dx, dz);
+      if (d > 0.62 || d < 1e-4) continue;
+      // you can't pass through them
+      me.x = pos.x + dx / d * 0.62; me.z = pos.z + dz / d * 0.62;
+      if ((p.bumpT || 0) > 0) continue;
+      p.bumpT = 2.5;
+      const hard = mySpeed > 3.2;
+      // they stop, turn to you and say something; a hard one knocks them back a step
+      p.char.target = null; p.char.faceTarget = me.clone(); p.pauseT = hard ? 2.2 : 1.2;
+      if (hard) { pos.addScaledVector(new THREE.Vector3(-dx / d, 0, -dz / d), 0.45); p.char.play('sad'); knock(new THREE.Vector3(-dx, 0, -dz).normalize(), 0.35); shake = 0.25; }
+      else p.char.play('idle');
+      pop(pick(hard ? ANGRY : SORRY), () => pos, 'them');
+      host.track?.('city_bump', { kind: hard ? 'person_hard' : 'person' });
+    }
+    for (const p of people) if (p.bumpT > 0) p.bumpT -= dt;
+  }
+
   function updatePeople(dt) {
     const out = host.isOutdoors() || !!drive;
     if (out && !peopleOn) { peopleOn = true; while (people.length < PEOPLE) addPerson(); }
     for (const p of people) {
       p.char.root.visible = out;
-      if (p.pauseT > 0 && (p.pauseT -= dt) <= 0) walkOn(p);
+      if (p.pauseT > 0 && (p.pauseT -= dt) <= 0) { p.char.faceTarget = null; walkOn(p); }
       if (out && p.char.root.position.distanceTo(player.root.position) > 150) placePerson(p);
     }
+    if (out) bumpPeople(dt);
   }
 
   return {
     get driving() { return !!drive; },
     update(dt) {
       honk -= dt;
+      updatePops(dt);
+      if (stunned > 0) { stunned -= dt; player.keys.clear(); }
+      if (shake > 0) {   // after the frame's camera is placed: a short jolt
+        shake = Math.max(0, shake - dt);
+        const k = shake * 0.12;
+        camera.position.x += (Math.random() - 0.5) * k; camera.position.y += (Math.random() - 0.5) * k;
+      }
       updateCars(dt);
       updatePeople(dt);
     },

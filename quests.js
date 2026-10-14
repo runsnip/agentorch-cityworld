@@ -15,24 +15,80 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const seeded = (seed) => () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
 const REACH = 2.2;
 
-function chestMesh() {
+// A column of light rising from the ground: bright at the foot, fading out as it climbs, faint bands
+// drifting up it. Shared shapes; each chest has its own material (its own time and colour).
+const BEAM_GEO = new THREE.CylinderGeometry(0.75, 0.95, 7, 32, 1, true).translate(0, 3.5, 0);
+function beamMaterial(color) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(color) } },
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `uniform float uTime; uniform vec3 uColor; varying vec2 vUv;
+      void main() {
+        float up = vUv.y;                                            // 0 at the ground, 1 at the top
+        float fade = pow(1.0 - up, 1.6);
+        float bands = 0.65 + 0.35 * sin((up * 9.0 - uTime * 2.2) * 6.2832);
+        float edge = 0.55 + 0.45 * sin(vUv.x * 6.2832 * 3.0 + uTime * 0.7);
+        gl_FragColor = vec4(uColor * (1.2 + 0.6 * bands), fade * (0.32 + 0.18 * bands) * edge);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+}
+// a soft glow pool on the ground at the foot of the beam
+const POOL_TEX = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'), r = g.createRadialGradient(64, 64, 4, 64, 64, 64);
+  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.4, 'rgba(255,255,255,.45)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+})();
+const SPARK_N = 24;
+
+function chestMesh(color = '#ffd77a') {
   const g = new THREE.Group();
+  // the light: a pool on the ground, the column, sparks rising inside it
+  const pool = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), new THREE.MeshBasicMaterial({ map: POOL_TEX, color, transparent: true, opacity: 0.85,
+    blending: THREE.AdditiveBlending, depthWrite: false }));
+  pool.rotation.x = -Math.PI / 2; pool.position.y = 0.03; g.add(pool);
+  const beamMat = beamMaterial(color);
+  const beam = new THREE.Mesh(BEAM_GEO, beamMat); g.add(beam);
+  const sparkGeo = new THREE.BufferGeometry(), sp = new Float32Array(SPARK_N * 3), seeds = [];
+  for (let k = 0; k < SPARK_N; k++) seeds.push([Math.random() * 6.283, 0.15 + Math.random() * 0.6, Math.random(), 0.6 + Math.random() * 0.8]);
+  sparkGeo.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+  const sparks = new THREE.Points(sparkGeo, new THREE.PointsMaterial({ color, size: 0.09, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+  g.add(sparks);
+  // the chest, floating in the light
+  const chest = new THREE.Group(); chest.position.y = 1.1; g.add(chest);
   const wood = new THREE.MeshStandardMaterial({ color: '#5a3b22', roughness: 0.7 });
   const trim = new THREE.MeshStandardMaterial({ color: '#d9a640', roughness: 0.3, metalness: 0.85, emissive: '#3a2600', emissiveIntensity: 0.4 });
-  const box = (m, w, h, d, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.castShadow = true; g.add(o); return o; };
-  box(wood, 0.9, 0.5, 0.6, 0, 0.25, 0);
-  const lid = new THREE.Group(); lid.position.set(0, 0.5, -0.3); g.add(lid);
+  const box = (m, w, h, d, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.castShadow = true; chest.add(o); return o; };
+  box(wood, 0.9, 0.5, 0.6, 0, 0, 0);
+  const lid = new THREE.Group(); lid.position.set(0, 0.25, -0.3); chest.add(lid);
   const top = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.9, 16, 1, false, 0, Math.PI), wood);
   top.rotation.z = Math.PI / 2; top.position.set(0, 0, 0.3); top.castShadow = true; lid.add(top);
-  for (const x of [-0.4, 0.4]) box(trim, 0.06, 0.52, 0.62, x, 0.26, 0);
-  box(trim, 0.92, 0.06, 0.62, 0, 0.5, 0);
-  box(trim, 0.14, 0.16, 0.04, 0, 0.42, 0.31);
-  // a beam of light so the chest can be spotted down the street
-  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.45, 9, 18, 1, true),
-    new THREE.MeshBasicMaterial({ color: '#ffd77a', transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-  beam.position.y = 4.6; g.add(beam);
-  g.userData = { lid, beam, trim };
+  for (const x of [-0.4, 0.4]) box(trim, 0.06, 0.52, 0.62, x, 0.01, 0);
+  box(trim, 0.92, 0.06, 0.62, 0, 0.25, 0);
+  box(trim, 0.14, 0.16, 0.04, 0, 0.17, 0.31);
+  const glow = new THREE.PointLight(color, 3, 6, 2); glow.position.y = 1.1; g.add(glow);
+  g.userData = { lid, beam, beamMat, trim, chest, sparks, seeds, pool, glow };
   return g;
+}
+
+// the light breathing, the chest bobbing and turning, sparks rising up the column
+function animateChest(m, t, i) {
+  const u = m.userData;
+  u.beamMat.uniforms.uTime.value = t + i;
+  u.pool.material.opacity = 0.65 + 0.2 * Math.sin(t * 2.4 + i);
+  u.glow.intensity = 2.4 + 0.8 * Math.sin(t * 2.4 + i);
+  u.chest.position.y = 1.1 + Math.sin(t * 1.6 + i) * 0.12;
+  u.chest.rotation.y = t * 0.6 + i;
+  u.chest.rotation.z = Math.sin(t * 1.1 + i) * 0.05;
+  u.trim.emissiveIntensity = 0.35 + 0.3 * Math.sin(t * 4 + i);
+  const pos = u.sparks.geometry.attributes.position;
+  u.seeds.forEach(([a, r, ph, sp], k) => {
+    const h = ((t * sp * 0.35 + ph) % 1);
+    pos.setXYZ(k, Math.cos(a + t * 0.8) * r, h * 4.5, Math.sin(a + t * 0.8) * r);
+  });
+  pos.needsUpdate = true;
 }
 
 function markMesh() {
@@ -99,9 +155,10 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
   card.className = 'hidden';
   document.body.append(card);
   let cardTimer = 0;
-  function showCard(item, title) {
-    card.className = `r-${item.rarity}`;
+  function showCard(item, title, { mission = false, n = 1, of = 1 } = {}) {
+    card.className = `r-${item.rarity}${mission ? ' mission' : ''}`;
     card.innerHTML = `<div class="rc-inner"><div class="rc-back"></div><div class="rc-front">
+      ${mission ? `<span class="rc-ribbon">${t('NHIỆM VỤ HOÀN THÀNH')}</span>` : ''}${of > 1 ? `<span class="rc-count">${n}/${of}</span>` : ''}
       <small>${esc(title)}</small><span class="rc-rarity">${RARITY_NAME[item.rarity] || item.rarity}</span>
       <div class="rc-icon3d"></div><b>${esc(t(item.name))}</b><p>${esc(t(item.desc))}</p>
       <em>${t('Đã cất vào Kho đồ')}${item.kind === 'coins' ? ` · +${item.amount} coin` : ''}</em></div></div>`;
@@ -118,12 +175,23 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
     for (const m of chests.values()) group.remove(m);
     chests.clear();
     if (!state || !city.spots.length) return;
-    const rnd = seeded(state.seed % 2147483646 + 1), pool = city.spots.slice();
+    // spread out over the city: each one at least `apart` metres from the others (loosened if the city runs out)
+    const rnd = seeded(state.seed % 2147483646 + 1), pool = city.spots.slice(), taken = [];
+    const apart = (city.grid?.pitch || 84) * 0.9;
+    const choose = () => {
+      for (let need = apart; need > 5; need *= 0.7) {
+        const ok = pool.filter(([x, z]) => taken.every(([a, b]) => Math.hypot(a - x, b - z) >= need));
+        if (ok.length) return ok[Math.floor(rnd() * ok.length)];
+      }
+      return pool[Math.floor(rnd() * pool.length)];
+    };
     for (let i = 0; i < state.count && pool.length; i++) {
-      const [x, z] = pool.splice(Math.floor(rnd() * pool.length), 1)[0];
+      const spot = choose();
+      pool.splice(pool.indexOf(spot), 1); taken.push(spot);
+      const [x, z] = spot;
       if (state.opened.includes(i)) continue;
       const m = chestMesh();
-      m.position.set(x, 0.02, z); m.rotation.y = rnd() * Math.PI * 2;
+      m.position.set(x, 0, z);
       group.add(m); chests.set(i, m);
     }
   }
@@ -159,8 +227,10 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
     onReward(msg) {
       if (msg.error) { onHint(msg.error); return; }
       for (const r of msg.rewards || []) if (r.source !== 'chest') track('city_mission_done', { rarity: r.item.rarity });
-      (msg.rewards || []).forEach((r, i) => setTimeout(() => showCard(r.item,
-        r.source === 'chest' ? t('Mở rương') : t('Hoàn thành: {name}', { name: r.name })), i * 4800));
+      // several at once (a chest that also finishes a mission): one after the other, numbered
+      const list = msg.rewards || [];
+      list.forEach((r, i) => setTimeout(() => showCard(r.item, r.source === 'chest' ? t('Mở rương') : r.name,
+        { mission: r.source !== 'chest', n: i + 1, of: list.length }), i * 4800));
       if (msg.rejected) onHint(t('{n} phần thưởng không khớp với nhiệm vụ gốc nên bị huỷ.', { n: msg.rejected }));
       if (msg.offline && !(msg.rewards || []).length) onHint(t('Chưa kết nối được kho nhiệm vụ: phần thưởng sẽ được trao khi có mạng.'));
     },
@@ -188,14 +258,18 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       near = null;
       let best = REACH;
       for (const [i, m] of chests) {
-        m.userData.beam.material.opacity = 0.16 + 0.08 * Math.sin(time * 3 + i);
-        m.userData.trim.emissiveIntensity = 0.3 + 0.25 * Math.sin(time * 4 + i);
-        if (m.userData.opening) {
-          m.userData.opening = Math.min(1, m.userData.opening + dt * 2.5);
-          m.userData.lid.rotation.x = -1.9 * m.userData.opening;
-          if (m.userData.opening >= 1) { group.remove(m); chests.delete(i); }
+        if (m.userData.opening) {   // the lid swings open, the chest rises and the light fades out
+          const o = m.userData.opening = Math.min(1, m.userData.opening + dt * 1.6);
+          animateChest(m, time, i);
+          m.userData.lid.rotation.x = -1.9 * Math.min(1, o * 2);
+          m.userData.chest.position.y += o * 0.8;
+          m.userData.chest.scale.setScalar(1 - Math.max(0, o - 0.6) * 2.4);
+          m.userData.beamMat.uniforms.uColor.value.multiplyScalar(0.96);
+          m.userData.pool.material.opacity *= 1 - o;
+          if (o >= 1) { group.remove(m); chests.delete(i); }
           continue;
         }
+        animateChest(m, time, i);
         const d = Math.hypot(m.position.x - p.x, m.position.z - p.z);
         if (out && d < best) { best = d; near = i; }
       }
