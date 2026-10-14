@@ -103,7 +103,7 @@ function markMesh() {
   return g;
 }
 
-export function createCityQuests({ scene, city, call, player, isOutdoors, track = () => {}, audio = null }) {
+export function createCityQuests({ scene, city, call, player, isOutdoors, track = () => {}, audio = null, usable = null }) {
   const group = new THREE.Group();
   scene.add(group);
   const chests = new Map();   // index → mesh
@@ -128,12 +128,16 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
     const have = (q) => (q.goal === 'walk' && !q.done ? Math.min(q.target, q.progress + Math.floor(inFlight + sinceReport)) : q.progress);
     shownWalk = Math.floor(sinceReport);
     tracker.innerHTML = `<div class="ct-head"><small>${t('Nhiệm vụ hôm nay')}</small><b class="ct-clock" title="${t('Hết ngày, nhiệm vụ chưa xong sẽ mất phần thưởng')}">${t('Còn {time}', { time: clockShown })}</b></div>
-      ${state.quests.map((q) => `<div class="ct-task r-${q.rarity}${q.done ? ' done' : ''}" title="${esc(q.story)}">
+      ${state.quests.map((q) => `<div class="ct-task r-${q.rarity}${q.done ? ' done' : ''}${detailId === q.id ? ' on' : ''}" data-q="${esc(q.id)}">
         <div class="ct-top"><span>${esc(q.name)}</span><em class="ct-gift">${q.claimed ? '✓' : RARITY_NAME[q.rarity]}</em></div>
         <div class="ct-bar"><i style="width:${Math.min(100, have(q) / q.target * 100)}%"></i></div>
         <small>${q.claimed ? t('Đã nhận') : q.done ? t('Đang xác nhận…') : q.goal === 'walk' ? t('{n} / {target} m', { n: have(q), target: q.target }) : `${q.progress}/${q.target}`}</small></div>`).join('')}
       <div class="ct-row"><span class="ct-chest"></span>${t('Rương còn lại trên phố')}<em>${chestsLeft}/${state.count}</em></div>
       ${state.pending ? `<div class="ct-pending">${t('{n} phần thưởng đang chờ xác nhận', { n: state.pending })}</div>` : ''}`;
+    tracker.querySelectorAll('[data-q]').forEach((el) => { el.onclick = () => showDetail(el.dataset.q); });
+    chestIcon ||= itemCanvas({ kind: 'chest', id: 'chest' }, { spin: true });   // a little chest turning, kept across redraws
+    tracker.querySelector('.ct-chest')?.append(chestIcon);
+    if (detailId) showDetail(detailId, true);
   }
 
   // ---- a short note at the top of the screen
@@ -148,6 +152,50 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
     clearTimeout(noteTimer);
     noteTimer = setTimeout(() => note.classList.add('hidden'), 4000);
   }
+
+  // ---- a mission's details, opened by clicking it in the tracker
+  const detail = document.createElement('div');
+  detail.id = 'quest-detail'; detail.className = 'hidden';
+  document.body.append(detail);
+  let detailId = null, chestIcon = null;
+  const HOW = {
+    walk: t('Đi bộ hoặc chạy ngoài phố, ra khỏi tòa nhà. Lái xe không tính.'),
+    parks: t('Ghé các công viên khác nhau trong thành phố (bãi cỏ xanh giữa các khối nhà). Mỗi công viên tính một lần trong ngày.'),
+    chests: t('Tìm rương dưới cột sáng vàng trên phố và mở ra (F hoặc bấm vào rương).'),
+    reception: t('Hỏi lễ tân ở sảnh tầng G (F ở quầy lễ tân). Mỗi câu hỏi tính một lần.'),
+    lift: t('Đi thang máy giữa các tầng (E trong thang máy).'),
+    visit: t('Đi tới cột sáng xanh trên phố.'),
+  };
+  const RAR = () => ({ common: t('Thường'), rare: t('Hiếm'), epic: t('Sử thi'), legendary: t('Huyền thoại') });
+  function showDetail(id, refresh = false) {
+    const q = state?.quests.find((x) => x.id === id);
+    if (!q || (!refresh && detailId === id && !detail.classList.contains('hidden'))) { detailId = null; detail.classList.add('hidden'); renderTrackerSoon(); return; }
+    detailId = id;
+    const have = q.goal === 'walk' && !q.done ? Math.min(q.target, q.progress + Math.floor(inFlight + sinceReport)) : q.progress;
+    let where = '';
+    if (q.goal === 'visit' && !q.done && marks.has(q.id)) {
+      const m = marks.get(q.id).position, p = player.root.position, d = Math.round(Math.hypot(m.x - p.x, m.z - p.z));
+      const ang = Math.atan2(m.x - p.x, m.z - p.z), dirs = [t('phía nam'), t('phía đông nam'), t('phía đông'), t('phía đông bắc'), t('phía bắc'), t('phía tây bắc'), t('phía tây'), t('phía tây nam')];
+      where = `<div class="qd-where">${t('Cách bạn khoảng {m} m, về {dir}.', { m: d, dir: dirs[(Math.round(ang / (Math.PI / 4)) + 8) % 8] })}</div>`;
+    }
+    detail.className = `r-${q.rarity}`;
+    detail.innerHTML = `<button class="qd-close" title="${t('Đóng')}">×</button>
+      <small class="qd-kind">${t('Nhiệm vụ hôm nay')}</small>
+      <h3>${esc(q.name)}</h3>
+      ${q.story ? `<p class="qd-story">“${esc(q.story)}”</p>` : ''}
+      <div class="qd-label">${t('Cách làm')}</div><p>${HOW[q.goal] || ''}</p>${where}
+      <div class="qd-label">${t('Tiến độ')}</div>
+      <div class="qd-bar"><i style="width:${Math.min(100, have / q.target * 100)}%"></i></div>
+      <div class="qd-row"><span>${q.goal === 'walk' ? `${have} / ${q.target} m` : `${have} / ${q.target}`}</span>
+        <em>${q.claimed ? t('Đã nhận thưởng') : q.done ? t('Đang xác nhận…') : t('Còn {time}', { time: left() })}</em></div>
+      <div class="qd-label">${t('Phần thưởng')}</div>
+      <div class="qd-reward"><span class="qd-rar">${RAR()[q.rarity] || q.rarity}</span>${t('Một món ngẫu nhiên từ bậc này trở lên, tung lúc hoàn thành. Hết ngày chưa xong là mất.')}</div>`;
+    detail.querySelector('.qd-close').onclick = () => showDetail(id);
+    renderTrackerSoon();
+  }
+  let rtT = 0;
+  const renderTrackerSoon = () => { clearTimeout(rtT); rtT = setTimeout(() => { tracker.querySelectorAll('[data-q]').forEach((el) => el.classList.toggle('on', el.dataset.q === detailId)); }, 0); };
+  window.addEventListener('keydown', (e) => { if (e.code === 'Escape' && detailId) { detailId = null; detail.classList.add('hidden'); renderTrackerSoon(); } });
 
   // ---- the reward card: flips over in the colour of its rarity
   const card = document.createElement('div');
@@ -195,6 +243,8 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       const m = chestMesh();
       m.position.set(x, 0, z);
       group.add(m); chests.set(i, m);
+      // clicking a chest opens it when it's within reach
+      usable?.(m.userData.chest, () => t('Mở rương'), () => { if (near === i) api.open(); else onHint(t('Lại gần rương hơn để mở.')); });
     }
   }
 
@@ -213,7 +263,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
 
   function report(r) { call('cityProgress', JSON.stringify(r)); }
 
-  return {
+  const api = {
     get near() { return near; },
     get hint() { return near != null ? t('Mở rương') : ''; },
     onState(msg) {
@@ -251,6 +301,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       const p = player.root.position, out = isOutdoors();
       tracker.classList.toggle('hidden', !out || !state);
       if (out && state && (left() !== clockShown || Math.floor(sinceReport) !== shownWalk)) renderTracker();
+      if (!out && detailId) { detailId = null; detail.classList.add('hidden'); }
       if (state && Date.now() / 1000 > state.ends_at) { state.ends_at = Infinity; call('cityState'); }   // a new day
       for (const [id, m] of marks) {
         m.userData.beam.material.opacity = 0.18 + 0.1 * Math.sin(time * 2.5);
@@ -289,4 +340,5 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       });
     },
   };
+  return api;
 }

@@ -89,7 +89,24 @@ function coins(item) {
   return g;
 }
 
+// a treasure chest: wooden body, arched lid, gold bands and lock
+function chest() {
+  const g = new THREE.Group(), wood = std('#6b4524', { roughness: 0.75 }), gold = std('#e3b341', { metalness: 1, roughness: 0.28, emissive: '#3a2600', emissiveIntensity: 0.4 });
+  g.add(mesh(box(1.6, 0.9, 1.05, 0, -0.35, 0), wood));
+  g.add(mesh(new THREE.CylinderGeometry(0.53, 0.53, 1.6, 24, 1, false, 0, Math.PI).rotateZ(Math.PI / 2).translate(0, 0.1, 0), wood));
+  for (const x of [-0.62, 0, 0.62]) {
+    g.add(mesh(box(0.1, 0.92, 1.08, x, -0.35, 0), gold));
+    g.add(mesh(new THREE.CylinderGeometry(0.545, 0.545, 0.1, 24, 1, true, 0, Math.PI).rotateZ(Math.PI / 2).translate(x, 0.1, 0), gold));
+  }
+  g.add(mesh(box(1.62, 0.08, 1.07, 0, 0.1, 0), gold));
+  g.add(mesh(box(0.26, 0.32, 0.08, 0, -0.02, 0.55), gold));
+  g.add(mesh(cyl(0.05, 0.05, 0.1, 0, -0.06, 0.6, Math.PI / 2), std('#1d1408')));
+  g.scale.setScalar(0.85);
+  return g;
+}
+
 function build(item) {
+  if (item.kind === 'chest') return chest();
   if (item.kind === 'finish') return rifle(item);
   if (item.kind === 'outfit') return jacket(item);
   if (item.kind === 'coins') return coins(item);

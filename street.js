@@ -150,6 +150,7 @@ export function createStreet(host) {
     const p = car.way[0].clone().lerp(car.way[1], rnd());
     car.group.position.copy(p);
     car.heading = Math.atan2(-DIRS[car.dir][1], DIRS[car.dir][0]);   // local +x along the lane
+    usableCar(car);
     car.speed = CRUISE * 0.6;
     group.add(car.group);
     cars.push(car);
@@ -196,9 +197,18 @@ export function createStreet(host) {
     car.group.position.set(c.x, 0, c.z);
     group.add(car.group);
     cars.push(car);
+    usableCar(car);
     return car;
   }
   const fwdOf = (h) => new THREE.Vector3(Math.cos(h), 0, -Math.sin(h));
+  // a car under the mouse: get in when at its door, else say how
+  function usableCar(car) {
+    host.usable?.(car.group, () => (drive ? '' : t('Lên xe')), () => {
+      if (drive) return;
+      if (doorOf(car).distanceTo(player.root.position.clone().setY(0)) < 2.6) getIn(car);
+      else host.audio?.sfx('error');
+    });
+  }
 
   // ---- people on the sidewalks
   const people = [];
@@ -228,8 +238,14 @@ export function createStreet(host) {
     p.edge = (p.edge + (p.cw ? 1 : 3)) % 4;
     p.char.walkTo(p.loop[p.edge], () => walkOn(p));
   }
+  const HELLO = [t('Chào anh/chị!'), t('Hôm nay trời đẹp ghê.'), t('Đường này đi đâu cũng gần.'), t('Đang vội, hẹn lúc khác nha!'), t('Xe buýt chưa tới hả trời…'), t('Công ty sếp to quá ha!')];
   function addPerson() {
     const p = { char: host.spawnPerson(PEOPLE_NAMES[people.length % PEOPLE_NAMES.length] + people.length), pauseT: 0 };
+    // clicking them: they stop, turn to the CEO and say something
+    host.usable?.(p.char.root, () => t('Chào <b>người đi đường</b>'), () => {
+      p.char.target = null; p.char.faceTarget = player.root.position.clone(); p.pauseT = 2.5; p.char.play('wave');
+      pop(pick(HELLO), () => p.char.root.position, 'them');
+    });
     people.push(p);
     placePerson(p, false);
   }

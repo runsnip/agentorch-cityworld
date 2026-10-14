@@ -28,6 +28,8 @@
   border-left: 2px solid var(--rc); background: rgba(255,255,255,.03); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.25); }
 .bag-missed em { font-style: normal; color: var(--rc); text-decoration: none; white-space: nowrap; }
 /* city quests: today's missions (right, outdoors), a note on top, the reward card flipping in its rarity's colour */
+#city-tracker .ct-task { pointer-events: auto; cursor: pointer; transition: background .12s; }
+#city-tracker .ct-task:hover, #city-tracker .ct-task.on { background: rgba(255,255,255,.1); box-shadow: inset 0 0 0 1px var(--rc); }
 #city-tracker { position: fixed; z-index: 13; right: 16px; top: 132px; width: 252px; padding: 10px 12px 10px; color: #eef1f6;
   font: 600 12px -apple-system, sans-serif; background: linear-gradient(180deg, rgba(8,11,18,.88), rgba(8,11,18,.7));
   border: 1px solid rgba(217,178,111,.5); clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
@@ -50,7 +52,8 @@
 .ct-task.done { opacity: .75; }
 .ct-row { display: flex; align-items: center; gap: 8px; margin-top: 2px; color: #d6dbe4; }
 .ct-row em { margin-left: auto; font-style: normal; font-weight: 800; color: #ffd77a; }
-.ct-chest { width: 14px; height: 11px; background: linear-gradient(180deg, #d9a640 0 30%, #5a3b22 30%); border: 1px solid #d9a640; }
+.ct-chest { width: 30px; height: 30px; margin: -6px 0 -6px -4px; flex: none; }
+.ct-chest canvas { width: 100%; height: 100%; display: block; }
 .ct-pending { margin-top: 7px; font-size: 11px; color: #ffd77a; animation: ct-blink 1.6s infinite; }
 @keyframes ct-blink { 50% { opacity: .45; } }
 #city-note { position: fixed; z-index: 40; left: 50%; top: 84px; transform: translateX(-50%); max-width: min(560px, calc(100vw - 32px));
@@ -110,3 +113,22 @@
   text-shadow: 0 1px 2px #000; }
 .city-pop.me { color: #ffd77a; border-color: rgba(255,215,122,.6); }
 .city-pop.them { color: #ffb3a8; border-color: rgba(255,140,120,.5); }
+
+/* a mission's details, left of the tracker */
+#quest-detail { --rc: #9aa6b8; position: fixed; z-index: 14; right: 282px; top: 132px; width: 300px; padding: 14px 16px 14px; color: #e8edf4; font: 13px/1.5 -apple-system, sans-serif;
+  background: linear-gradient(180deg, rgba(10,13,20,.95), rgba(8,11,18,.9)); border: 1px solid color-mix(in srgb, var(--rc) 70%, transparent);
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px); animation: gf-fade .15s; }
+#quest-detail.r-rare { --rc: #4fa3ff; } #quest-detail.r-epic { --rc: #b06cff; } #quest-detail.r-legendary { --rc: #f3c14b; }
+#quest-detail.hidden { display: none; }
+#quest-detail h3 { margin: 2px 0 6px; font-size: 16px; color: #fff; }
+#quest-detail p { margin: 0 0 6px; color: #c8cfda; }
+#quest-detail .qd-story { font-style: italic; color: #e6c27a; }
+#quest-detail .qd-kind, #quest-detail .qd-label { display: block; margin-top: 8px; font-size: 10.5px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #d9b26f; }
+#quest-detail .qd-kind { margin-top: 0; }
+#quest-detail .qd-where { margin: 4px 0; padding: 5px 8px; color: #9fe4ff; background: rgba(95,208,255,.1); border-left: 2px solid #5fd0ff; }
+#quest-detail .qd-bar { height: 7px; margin: 6px 0 4px; background: rgba(255,255,255,.1); } #quest-detail .qd-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--rc), #fff); }
+#quest-detail .qd-row { display: flex; justify-content: space-between; font-size: 12px; } #quest-detail .qd-row em { font-style: normal; color: #ff9f6b; font-weight: 700; }
+#quest-detail .qd-reward { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: #c8cfda; }
+#quest-detail .qd-rar { flex: none; padding: 2px 8px; font: 900 10px -apple-system, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: #0a0d14; background: var(--rc); }
+#quest-detail .qd-close { position: absolute; right: 8px; top: 6px; width: 24px; height: 24px; border: 0; cursor: pointer; font-size: 18px; color: #aab3c2; background: none; }
+#quest-detail .qd-close:hover { color: #fff; }
