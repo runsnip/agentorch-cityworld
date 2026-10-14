@@ -255,15 +255,8 @@ export function createStreet(host) {
   hud.id = 'drive-hud'; hud.className = 'hidden';
   hud.innerHTML = `<b class="dh-speed">0</b><small>km/h</small><div class="dh-keys"><kbd>W</kbd><kbd>S</kbd> ${t('ga / phanh')} · <kbd>A</kbd><kbd>D</kbd> ${t('lái')} · <kbd>V</kbd> ${t('góc nhìn')} · <kbd>F</kbd> ${t('xuống xe')}</div>`;
   document.body.append(hud);
-  let audio = null;
-  function beep(f = 420, d = 0.25) {
-    try {
-      audio ||= new AudioContext();
-      const o = audio.createOscillator(), g = audio.createGain(), now = audio.currentTime;
-      o.type = 'square'; o.frequency.value = f; g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.05, now + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + d); o.connect(g).connect(audio.destination); o.start(now); o.stop(now + d + 0.05);
-    } catch { /* no sound */ }
-  }
+  // sounds through the app's shared engine (/audio.js); an older app without it stays quiet
+  const sfx = (name, o) => host.audio?.sfx(name, o);
   const doorOf = (car) => car.group.position.clone().add(new THREE.Vector3(-0.3, 0, -1.25).applyAxisAngle(new THREE.Vector3(0, 1, 0), car.heading));
   function nearCar() {
     if (drive || !host.isOutdoors()) return null;
@@ -278,6 +271,7 @@ export function createStreet(host) {
     return best;
   }
   function getIn(car) {
+    sfx('door_car');
     host.track?.('car_driven', { parked: !!car.parkedCar });
     car.ai = false; drive = car; car.speed = 0;
     player.root.visible = false;
@@ -287,6 +281,7 @@ export function createStreet(host) {
     view = 'cockpit';
   }
   function getOut() {
+    sfx('door_car'); host.audio?.loop('engine', null);
     const car = drive;
     const out = doorOf(car).add(new THREE.Vector3(-0.0, 0, -0.5).applyAxisAngle(new THREE.Vector3(0, 1, 0), car.heading));
     host.collide(out, 0.35);
@@ -344,6 +339,7 @@ export function createStreet(host) {
         camera.lookAt(p.clone().setY(1.2));
       }
       hud.querySelector('.dh-speed').textContent = Math.round(Math.abs(car.speed) * 3.6);
+      host.audio?.loop('engine', { speed: car.speed, throttle: Math.abs(throttle), level: 1 });
     },
   };
   // walls, trees, the office, parked cars: push the car out; other cars: both stop
@@ -363,7 +359,7 @@ export function createStreet(host) {
       if (dist < 2.3 && dist > 1e-3) {
         p.addScaledVector(d.normalize(), -(2.3 - dist) * (o.ai ? 1 : 0.5));
         hit = true;
-        if (o.ai) { o.stopFor = 4; o.speed = 0; if (mine && honk <= 0) { beep(380, 0.35); honk = 1.5; } }
+        if (o.ai) { o.stopFor = 4; o.speed = 0; if (mine && honk <= 0) { sfx('horn'); sfx('bump_car'); honk = 1.5; } }
       }
     }
     if (hit && Math.abs(car.speed) > 2) car.speed *= mine ? -0.25 : 0;
@@ -408,8 +404,9 @@ export function createStreet(host) {
           const away = player.root.position.clone().sub(p).setY(0).normalize();
           knock(away.negate(), 1.2); shake = 0.45; stunned = 0.6; player.keys.clear();
           pop(pick([t('Á! Xe!'), t('Suýt nữa thì…'), t('Đi xe kiểu gì vậy!')]), () => player.root.position);
+          sfx('bump_car');
         }
-        car.stopFor = 3; if (car.speed > 1 && honk <= 0) { beep(); honk = 1.5; } car.speed = 0;
+        car.stopFor = 3; if (car.speed > 1 && honk <= 0) { sfx('horn'); honk = 1.5; } car.speed = 0;
       }
     }
     for (const car of cars) {
@@ -453,7 +450,8 @@ export function createStreet(host) {
     knock(dir.clone().normalize(), 0.55);
     shake = 0.35; stunned = 0.45;
     player.keys.clear();
-    if (now - lastOuch > 1500) { lastOuch = now; pop(pick(OUCH[kind] || OUCH.building), () => player.root.position); beep(160, 0.12); }
+    if (now - lastOuch > 1500) { lastOuch = now; pop(pick(OUCH[kind] || OUCH.building), () => player.root.position); }
+    sfx(`bump_${kind}`);
     host.track?.('city_bump', { kind });
   });
   // people: they don't let you walk through them; run into one and they stagger and tell you about it
@@ -478,6 +476,7 @@ export function createStreet(host) {
       if (hard) { pos.addScaledVector(new THREE.Vector3(-dx / d, 0, -dz / d), 0.45); p.char.play('sad'); knock(new THREE.Vector3(-dx, 0, -dz).normalize(), 0.35); shake = 0.25; }
       else p.char.play('idle');
       pop(pick(hard ? ANGRY : SORRY), () => pos, 'them');
+      sfx('bump_person');
       host.track?.('city_bump', { kind: hard ? 'person_hard' : 'person' });
     }
     for (const p of people) if (p.bumpT > 0) p.bumpT -= dt;

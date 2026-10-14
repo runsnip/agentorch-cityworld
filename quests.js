@@ -103,7 +103,7 @@ function markMesh() {
   return g;
 }
 
-export function createCityQuests({ scene, city, call, player, isOutdoors, track = () => {} }) {
+export function createCityQuests({ scene, city, call, player, isOutdoors, track = () => {}, audio = null }) {
   const group = new THREE.Group();
   scene.add(group);
   const chests = new Map();   // index → mesh
@@ -165,6 +165,8 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
     card.querySelector('.rc-icon3d').append(itemCanvas(item, { spin: true }));   // the prize, turning in 3D
     void card.offsetWidth;
     card.classList.add('show');
+    audio?.sfx(mission ? 'mission' : 'reward', { rarity: item.rarity });
+    if (item.kind === 'coins') setTimeout(() => audio?.sfx('coin'), 600);
     clearTimeout(cardTimer);
     cardTimer = setTimeout(() => card.classList.add('hidden'), item.rarity === 'legendary' ? 6500 : 4500);
   }
@@ -239,6 +241,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       const m = chests.get(near);
       if (m) { m.userData.opening = 0.001; }
       track('city_chest_opened');
+      audio?.sfx('chest');
       call('cityOpenChest', near);
       return true;
     },
