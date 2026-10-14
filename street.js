@@ -85,8 +85,8 @@ const SHAPE = (() => {
     at(new THREE.CylinderGeometry(0.025, 0.03, 0.34, 8), 0.46, 0.92, -0.38, 0, 0, 1.0),   // steering column
   ]);
   const steer = at(new THREE.TorusGeometry(0.17, 0.02, 8, 28), 0.33, 0.98, -0.38, 0, Math.PI / 2, 0.45);
-  const tyre = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 24).rotateX(Math.PI / 2);
-  const rim = mergeGeometries([new THREE.CylinderGeometry(0.22, 0.22, 0.255, 18).rotateX(Math.PI / 2),
+  const tyre = new THREE.CylinderGeometry(0.36, 0.36, 0.26, 24).rotateX(Math.PI / 2);
+  const rim = mergeGeometries([new THREE.CylinderGeometry(0.24, 0.24, 0.275, 18).rotateX(Math.PI / 2),
     ...[0, 1, 2, 3, 4].map((k) => at(new THREE.BoxGeometry(0.04, 0.4, 0.03), 0, 0, 0.12, 0, 0, k / 5 * Math.PI))]);
   return { body, cabin, glass, trim, chrome, head, tail, plate, seat, dash, steer, tyre, rim };
 })();
@@ -101,7 +101,7 @@ function makeCar(color) {
   mesh(SHAPE.seat, MAT.seat, false); mesh(SHAPE.dash, MAT.dash, false); mesh(SHAPE.steer, MAT.trim, false);
   // nobody visible at the wheel of the city's cars: a dark tint on the glass hides the cabin from outside
   const wheels = WHEELS.map(([x, z]) => {
-    const w = new THREE.Group(); w.position.set(x, 0.34, z);
+    const w = new THREE.Group(); w.position.set(x, 0.36, z);
     const spin = new THREE.Group(); w.add(spin);
     const tyre = new THREE.Mesh(SHAPE.tyre, MAT.tyre); tyre.castShadow = true;
     spin.add(tyre, new THREE.Mesh(SHAPE.rim, MAT.chrome));
@@ -156,6 +156,48 @@ export function createStreet(host) {
     return car;
   }
   for (let i = 0; i < CARS; i++) spawnCar();
+
+  // ---- the parked cars along the kerbs: the city's simple ones swapped for these, all in a few instanced
+  // meshes; one is taken out (and a real car put in its place) when the CEO gets into it
+  const parked = city.parked.map(([x, z, a], k) => ({ x, z, a, k, color: city.carColors[k % city.carColors.length], wall: city.parkedWalls[k], gone: false }));
+  const parkedSets = [];
+  if (parked.length) {
+    for (const m of city.parkedMeshes) m.visible = false;
+    const white = new THREE.Color(1, 1, 1);
+    const paint = new THREE.MeshStandardMaterial({ color: white, roughness: 0.32, metalness: 0.55, side: THREE.DoubleSide });
+    const parts = [[SHAPE.body, paint, true], [SHAPE.cabin, paint, true], [SHAPE.glass, MAT.glass], [SHAPE.trim, MAT.trim], [SHAPE.chrome, MAT.chrome],
+      [SHAPE.head, MAT.head], [SHAPE.tail, MAT.tail], [SHAPE.plate, MAT.plate], [SHAPE.seat, MAT.seat], [SHAPE.dash, MAT.dash], [SHAPE.steer, MAT.trim]];
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
+    const poseOf = (c) => m4.compose(new THREE.Vector3(c.x, 0, c.z), q.setFromAxisAngle(up, c.a), one).clone();
+    for (const [geo, mat, painted] of parts) {
+      const im = new THREE.InstancedMesh(geo, mat, parked.length);
+      parked.forEach((c, i) => { im.setMatrixAt(i, poseOf(c)); if (painted) im.setColorAt(i, new THREE.Color(c.color)); });
+      im.castShadow = mat !== MAT.glass; im.receiveShadow = true;
+      group.add(im); parkedSets.push({ im, wheel: null });
+    }
+    for (const [geo, mat] of [[SHAPE.tyre, MAT.tyre], [SHAPE.rim, MAT.chrome]]) {
+      const im = new THREE.InstancedMesh(geo, mat, parked.length * 4);
+      parked.forEach((c, i) => WHEELS.forEach(([x, z], w) => im.setMatrixAt(i * 4 + w, poseOf(c).multiply(new THREE.Matrix4().makeTranslation(x, 0.36, z)))));
+      im.castShadow = true;
+      group.add(im); parkedSets.push({ im, wheel: true });
+    }
+  }
+  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  // take parked car i off the kerb: a real car, its own collision box gone
+  function unpark(c) {
+    c.gone = true;
+    for (const { im, wheel } of parkedSets) {
+      if (wheel) for (let w = 0; w < 4; w++) im.setMatrixAt(c.k * 4 + w, zero); else im.setMatrixAt(c.k, zero);
+      im.instanceMatrix.needsUpdate = true;
+    }
+    Object.assign(c.wall, { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity });
+    const m = makeCar(c.color);
+    const car = { ...m, a: 0, b: 0, dir: 0, way: null, heading: c.a, speed: 0, stopFor: 0, stuck: 0, ai: false, parkedCar: true };
+    car.group.position.set(c.x, 0, c.z);
+    group.add(car.group);
+    cars.push(car);
+    return car;
+  }
   const fwdOf = (h) => new THREE.Vector3(Math.cos(h), 0, -Math.sin(h));
 
   // ---- people on the sidewalks
@@ -225,9 +267,14 @@ export function createStreet(host) {
   const doorOf = (car) => car.group.position.clone().add(new THREE.Vector3(-0.3, 0, -1.25).applyAxisAngle(new THREE.Vector3(0, 1, 0), car.heading));
   function nearCar() {
     if (drive || !host.isOutdoors()) return null;
-    const me = player.root.position;
+    const me = player.root.position.clone().setY(0);
     let best = null, bd = 2.2;
-    for (const c of cars) { const d = doorOf(c).distanceTo(me.clone().setY(0)); if (d < bd) { bd = d; best = c; } }
+    for (const c of cars) { const d = doorOf(c).distanceTo(me); if (d < bd) { bd = d; best = c; } }
+    for (const c of parked) {
+      if (c.gone) continue;
+      const d = doorOf({ group: { position: new THREE.Vector3(c.x, 0, c.z) }, heading: c.a }).distanceTo(me);
+      if (d < bd) { bd = d; best = c; }
+    }
     return best;
   }
   function getIn(car) {
@@ -333,7 +380,7 @@ export function createStreet(host) {
     for (const p of people) others.push({ ref: null, pos: p.char.root.position, r: 0.4 });
     for (const car of cars) {
       if (!car.ai) {
-        if (car !== drive && (car.backT -= dt) <= 0 && player.root.position.distanceTo(car.group.position) > 8) rejoin(car);
+        if (car !== drive && !car.parkedCar && (car.backT -= dt) <= 0 && player.root.position.distanceTo(car.group.position) > 8) rejoin(car);
         continue;
       }
       const p = car.group.position, fwd = fwdOf(car.heading);
@@ -360,7 +407,7 @@ export function createStreet(host) {
     for (const car of cars) {
       car.group.rotation.y = car.heading;
       for (const w of car.wheels) {
-        w.spin.rotation.z -= car.speed * dt / 0.34;
+        w.spin.rotation.z -= car.speed * dt / 0.36;
         w.w.rotation.y = w.front ? (car === drive ? car.steer || 0 : 0) : 0;
       }
     }
@@ -387,7 +434,7 @@ export function createStreet(host) {
       if (e.code === 'KeyF' && !e.repeat) {
         if (drive) { getOut(); return true; }
         const c = nearCar();
-        if (c) { getIn(c); return true; }
+        if (c) { getIn(c.group ? c : unpark(c)); return true; }
       }
       if (e.code === 'KeyV' && drive) { view = view === 'cockpit' ? 'chase' : 'cockpit'; return true; }
       return false;
