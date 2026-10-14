@@ -2,5 +2,8 @@
  "name": "city",
  "title": "Thành phố sống",
  "version": "0.1.0",
- "entry": "city.js"
+ "entry": "city.js",
+ "requires": {
+  "host": 1
+ }
 }
