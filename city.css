@@ -80,3 +80,12 @@
 .rc-front b { font-size: 17px; color: #fff; }
 .rc-front p { margin: 6px 0 auto; font-size: 12px; line-height: 1.4; color: #c5ccd8; }
 .rc-front em { font-style: normal; font-size: 11px; font-weight: 700; color: var(--rc); }
+
+/* driving: the speedometer and the keys, bottom centre */
+#drive-hud { position: fixed; z-index: 14; left: 50%; bottom: 28px; transform: translateX(-50%); display: flex; align-items: baseline; gap: 8px;
+  padding: 10px 18px; color: #f4f1ea; font: 600 13px -apple-system, sans-serif; background: rgba(8,11,18,.82);
+  border: 1px solid rgba(217,178,111,.55); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); pointer-events: none; }
+#drive-hud.hidden { display: none; }
+#drive-hud .dh-speed { font: 900 30px ui-monospace, Menlo, monospace; color: #ffd77a; min-width: 2.2em; text-align: right; }
+#drive-hud small { color: #aab3c2; margin-right: 14px; }
+#drive-hud kbd { font: 800 11px -apple-system, sans-serif; padding: 2px 6px; margin: 0 2px; color: #1c1408; background: linear-gradient(180deg, #f6dc9f, #c99a4b); border-radius: 3px; }
