@@ -61,7 +61,7 @@ export function createBagTab({ call, board }) {
     const big = right.querySelector('[data-big]');
     if (big && it) { if (bigFor !== it.id) { bigFor = it.id; bigCv = itemCanvas(it, { spin: true }); } big.append(bigCv); }
     const eq = right.querySelector('#bag-equip');
-    if (eq) eq.onclick = () => call('inventoryEquip', 'finish', inv.equipped.finish === it.id ? '' : it.id);
+    if (eq) eq.onclick = () => { call('inventoryEquip', 'finish', inv.equipped.finish === it.id ? '' : it.id); call('track', 'item_equipped', JSON.stringify({ kind: it.kind, rarity: it.rarity })); };
   }
 
 

@@ -278,6 +278,7 @@ export function createStreet(host) {
     return best;
   }
   function getIn(car) {
+    host.track?.('car_driven', { parked: !!car.parkedCar });
     car.ai = false; drive = car; car.speed = 0;
     player.root.visible = false;
     player.yaw = car.heading + Math.PI / 2; player.pitch = 0.05;   // start looking ahead

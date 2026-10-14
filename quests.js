@@ -47,7 +47,7 @@ function markMesh() {
   return g;
 }
 
-export function createCityQuests({ scene, city, call, player, isOutdoors }) {
+export function createCityQuests({ scene, city, call, player, isOutdoors, track = () => {} }) {
   const group = new THREE.Group();
   scene.add(group);
   const chests = new Map();   // index → mesh
@@ -154,6 +154,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors }) {
     // rewards come once the app has checked them against the repository (a moment later, or when back online)
     onReward(msg) {
       if (msg.error) { onHint(msg.error); return; }
+      for (const r of msg.rewards || []) if (r.source !== 'chest') track('city_mission_done', { rarity: r.item.rarity });
       (msg.rewards || []).forEach((r, i) => setTimeout(() => showCard(r.item,
         r.source === 'chest' ? t('Mở rương') : t('Hoàn thành: {name}', { name: r.name })), i * 4800));
       if (msg.rejected) onHint(t('{n} phần thưởng không khớp với nhiệm vụ gốc nên bị huỷ.', { n: msg.rejected }));
@@ -163,6 +164,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors }) {
       if (near == null) return false;
       const m = chests.get(near);
       if (m) { m.userData.opening = 0.001; }
+      track('city_chest_opened');
       call('cityOpenChest', near);
       return true;
     },
