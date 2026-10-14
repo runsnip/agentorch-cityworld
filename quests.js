@@ -9,6 +9,7 @@
 
 import * as THREE from 'three';
 import { t } from '/i18n.js';
+import { itemCanvas } from './itemview.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const seeded = (seed) => () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
@@ -99,8 +100,9 @@ export function createCityQuests({ scene, city, call, player, isOutdoors }) {
     card.className = `r-${item.rarity}`;
     card.innerHTML = `<div class="rc-inner"><div class="rc-back"></div><div class="rc-front">
       <small>${esc(title)}</small><span class="rc-rarity">${RARITY_NAME[item.rarity] || item.rarity}</span>
-      <div class="rc-icon k-${item.kind}"></div><b>${esc(t(item.name))}</b><p>${esc(t(item.desc))}</p>
+      <div class="rc-icon3d"></div><b>${esc(t(item.name))}</b><p>${esc(t(item.desc))}</p>
       <em>${t('Đã cất vào Kho đồ')}${item.kind === 'coins' ? ` · +${item.amount} coin` : ''}</em></div></div>`;
+    card.querySelector('.rc-icon3d').append(itemCanvas(item, { spin: true }));   // the prize, turning in 3D
     void card.offsetWidth;
     card.classList.add('show');
     clearTimeout(cardTimer);

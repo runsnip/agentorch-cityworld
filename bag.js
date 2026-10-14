@@ -2,12 +2,15 @@
 // missions, by rarity. The items themselves are kept by the app (agentorch/inventory.py, in the vault).
 
 import { t } from '/i18n.js';
+import { itemCanvas } from './itemview.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ICON = '<svg viewBox="0 0 24 24"><path d="M3 9h18v11H3z"/><path d="M3 9l2-5h14l2 5"/><path d="M10 13h4"/></svg>';
 
 export function createBagTab({ call, board }) {
   const st = { inventory: null, bagKind: 'all', bagSel: null };
+  const icons = new Map();   // item id → its 3D canvas
+  let bigFor = null, bigCv = null;
   let asked = false;
   // The company's inventory: items from the city's chests and missions, by rarity (kept by the app, see inventory.py).
   const RARITY = { common: t('Thường'), rare: t('Hiếm'), epic: t('Sử thi'), legendary: t('Huyền thoại') };
@@ -24,9 +27,15 @@ export function createBagTab({ call, board }) {
     left.innerHTML = `<div class="lt-label">${t('Kho đồ')} <small>${owned}/${inv.items.length}</small></div>
       <div class="lt-chips">${KINDS.map(([k, label]) => `<button class="lt-chip${st.bagKind === k ? ' on' : ''}" data-kind="${k}">${label}</button>`).join('')}</div>
       <div class="bag-grid">${items.map((it) => `<button class="bag-slot r-${it.rarity}${it.count ? '' : ' none'}${st.bagSel === it.id ? ' on' : ''}${inv.equipped.finish === it.id ? ' worn' : ''}" data-id="${it.id}" title="${esc(t(it.name))}">
-        <i class="bag-ico k-${it.kind}" style="${it.color ? `--a:${it.color};--b:${it.accent || it.color}` : ''}"></i>
+        <i class="bag-ico3d" data-ico="${it.id}"></i>
         <span>${it.count ? esc(t(it.name)) : '???'}</span>${it.count > 1 ? `<em>×${it.count}</em>` : ''}</button>`).join('')}</div>
       ${inv.pending ? `<div class="lt-hint">${t('{n} phần thưởng đang chờ xác nhận', { n: inv.pending })}</div>` : ''}`;
+    // the items in 3D (kept across redraws: one turning model per item)
+    left.querySelectorAll('[data-ico]').forEach((el) => {
+      const item = inv.items.find((x) => x.id === el.dataset.ico);
+      if (!icons.has(item.id)) icons.set(item.id, itemCanvas(item));
+      el.append(icons.get(item.id));
+    });
     left.querySelectorAll('[data-kind]').forEach((b) => { b.onclick = () => { st.bagKind = b.dataset.kind; board.refresh('bag'); }; });
     left.querySelectorAll('[data-id]').forEach((b) => { b.onclick = () => { st.bagSel = b.dataset.id; board.refresh('bag'); }; });
 
@@ -39,6 +48,7 @@ export function createBagTab({ call, board }) {
       `<div class="r-${m.rarity}"><span>${esc(m.quest)}</span><em>${RARITY[m.rarity] || ''} · ${esc(m.day)}</em></div>`).join('')}</div>` : '';
     right.innerHTML = it ? `
       <div class="bag-detail r-${it.rarity}">
+        <i class="bag-big" data-big="${it.id}"></i>
         <span class="bag-rarity">${RARITY[it.rarity]}</span>
         <div class="lt-title">${it.count ? esc(t(it.name)) : t('Chưa có')}</div>
         <div class="qb-text">${it.count ? esc(t(it.desc)) : t('Mở rương hoặc làm nhiệm vụ trong thành phố để có thể nhận món này.')}</div>
@@ -48,6 +58,8 @@ export function createBagTab({ call, board }) {
       </div>${rates}${missed}`
       : `<div class="lt-title">${t('Kho đồ')}</div>
       <div class="qb-text">${t('Ra thành phố tìm rương có cột sáng và làm nhiệm vụ hằng ngày. Nhiệm vụ mới mỗi ngày; hết ngày chưa làm xong là mất phần thưởng.')}</div>${rates}${missed}`;
+    const big = right.querySelector('[data-big]');
+    if (big && it) { if (bigFor !== it.id) { bigFor = it.id; bigCv = itemCanvas(it, { spin: true }); } big.append(bigCv); }
     const eq = right.querySelector('#bag-equip');
     if (eq) eq.onclick = () => call('inventoryEquip', 'finish', inv.equipped.finish === it.id ? '' : it.id);
   }
