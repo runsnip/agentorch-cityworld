@@ -42,6 +42,11 @@ const extrude = (pts, width, bevel = 0.02) => {
 };
 const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 const cyl = (r0, r1, h, n = 10, open = false) => new THREE.CylinderGeometry(r0, r1, h, n, 1, open);
+// a closed lathed solid from a profile [[r, y], ...] that starts and ends on the axis (or loops back on itself):
+// shells (bowls, glasses, baskets, canopies) get a wall with an inside, an outside and a rim between
+// (wound counter-clockwise in r/y, so the faces look outwards whichever way round the profile was written)
+const ccw = (pts) => (pts.reduce((a, [x, y], i) => { const [x2, y2] = pts[(i + 1) % pts.length]; return a + x * y2 - x2 * y; }, 0) < 0 ? pts.slice().reverse() : pts);
+const shell = (pts, n = 24) => new THREE.LatheGeometry(ccw(pts).map(([x, y]) => new THREE.Vector2(x, y)), n);
 // a rod from a to b
 const rod = (a, b, r, color, n = 6) => {
   const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]), len = d.length();
@@ -95,25 +100,52 @@ export const BIKE = (() => {
 export const RIDER_AT = new THREE.Vector3(-0.42, 0.21, 0);
 
 export const HELMET = merge([
-  part(new THREE.SphereGeometry(0.135, 16, 9, 0, Math.PI * 2, 0, Math.PI * 0.56), 0xffffff),
-  part(box(0.04, 0.025, 0.2), 0xffffff, 0.12, 0.0, 0),   // the peak
+  // a shell 1.5 cm thick: the outside dome, a rounded edge, the lining inside
+  part(shell([...Array.from({ length: 9 }, (_, k) => k / 8 * Math.PI * 0.56).map((a) => [Math.sin(a) * 0.135, Math.cos(a) * 0.135]),
+    ...Array.from({ length: 9 }, (_, k) => (8 - k) / 8 * Math.PI * 0.56).map((a) => [Math.sin(a) * 0.12, Math.cos(a) * 0.12 - 0.004])], 18), 0xffffff),
+  part((() => {   // the peak: a crescent 8 mm thick round the front, tipped up a little
+    const sh = new THREE.Shape().absarc(0, 0, 0.2, -0.85, 0.85, false).absarc(0, 0, 0.122, 0.85, -0.85, true);
+    return new THREE.ExtrudeGeometry(sh, { depth: 0.008, bevelEnabled: false, curveSegments: 10 }).rotateX(Math.PI / 2).rotateZ(0.12);
+  })(), 0xffffff, 0, 0.004, 0),
+  part(new THREE.TorusGeometry(0.129, 0.007, 6, 28), 0xffffff, 0, -0.022, 0, Math.PI / 2, 0, 0),   // a rolled edge round the rim
 ]);
-const HAT = merge([part(cyl(0.006, 0.25, 0.16, 20), 0xd8c48c, 0, 0.05, 0), part(new THREE.TorusGeometry(0.245, 0.008, 4, 24), 0xc4ad70, 0, -0.03, 0, Math.PI / 2, 0, 0)]);   // a conical straw hat
+const HAT = merge([part(shell([[0, 0.135], [0.01, 0.132], [0.25, -0.03], [0.244, -0.036], [0.006, 0.122], [0, 0.122]], 24), 0xd8c48c, 0, 0, 0),   // a conical straw hat: a woven shell
+  part(new THREE.TorusGeometry(0.245, 0.008, 4, 24), 0xc4ad70, 0, -0.03, 0, Math.PI / 2, 0, 0),
+  ...[0.04, 0.09].map((y) => part(new THREE.TorusGeometry(0.25 - (y + 0.03) * 1.48, 0.0035, 3, 24), 0xc4ad70, 0, y, 0, Math.PI / 2, 0, 0))]);   // rings of the weave
 
 // A food stall's pieces (local: x along the sidewalk, +z towards the street)
-const STOOL = merge([part(cyl(0.12, 0.16, 0.38, 4), 0xffffff, 0, 0.19, 0, 0, Math.PI / 4), part(box(0.23, 0.035, 0.23), 0xffffff, 0, 0.395, 0)]);
-const TABLE = merge([part(cyl(0.2, 0.28, 0.5, 4), 0xffffff, 0, 0.25, 0, 0, Math.PI / 4), part(box(0.62, 0.035, 0.62), 0xffffff, 0, 0.52, 0)]);
+// a low plastic stool or table: a top with a lip under it, four splayed legs and a ring of stretchers low down
+const furniture = (top, h, leg, lr) => {
+  const t = top / 2, i = t - 0.03, o = i + leg * 0.12, W = 0xffffff;
+  return merge([
+    part(extrude([[-t, 0], [t, 0], [t, 0.004], [-t, 0.004]], top, 0.012), W, 0, h - 0.016, 0),   // the top, its edges rounded
+    ...[[0, i], [0, -i], [i, 0], [-i, 0]].map(([x, z]) => part(box(x ? 0.012 : 2 * i, 0.055, x ? 2 * i : 0.012), W, x, h - 0.05, z)),   // the lip
+    ...[[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, b]) => rod([a * i, h - 0.02, b * i], [a * o, 0, b * o], lr, W)),
+    ...[[0, 1], [0, -1], [1, 0], [-1, 0]].map(([x, z]) => { const m = (i + o) / 2 + 0.005, y = h * 0.28;
+      return x ? rod([x * m, y, -m], [x * m, y, m], lr * 0.6, W) : rod([-m, y, z * m], [m, y, z * m], lr * 0.6, W); }),
+  ]);
+};
+const STOOL = furniture(0.25, 0.41, 0.4, 0.016);
+const TABLE = furniture(0.64, 0.54, 0.5, 0.024);
 const TABLE_TOP = merge([   // bowls, chopsticks, a condiment caddy on a table
-  ...[[-0.15, -0.13], [0.16, 0.12]].map(([x, z]) => part(new THREE.SphereGeometry(0.075, 12, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), 0xf3efe6, x, 0.615, z)),
-  ...[[-0.15, -0.13], [0.16, 0.12]].map(([x, z]) => part(cyl(0.07, 0.07, 0.006, 12), 0xb8763d, x, 0.6, z)),
-  part(box(0.12, 0.08, 0.07), 0x8b5a2b, 0, 0.58, 0),
-  ...[-0.03, 0.03].map((x) => part(cyl(0.018, 0.018, 0.1, 8), [0xb5251d, 0x6b3b17][x > 0 ? 1 : 0], x, 0.64, 0)),
+  ...[[-0.15, -0.13], [0.16, 0.12]].flatMap(([x, z]) => [   // a bowl (a wall, a foot, a rim) and the broth filling it
+    part(shell([[0, 0], [0.035, 0], [0.04, 0.008], [0.065, 0.03], [0.077, 0.068], [0.074, 0.071], [0.062, 0.034], [0.035, 0.015], [0, 0.013]], 16), 0xf3efe6, x, 0.54, z),
+    part(shell([[0, 0.014], [0.04, 0.019], [0.062, 0.04], [0.066, 0.052], [0, 0.052]], 16), 0xb8763d, x, 0.54, z)]),
+  // the caddy: a little wooden tray with walls and a handle down the middle, two bottles in it
+  part(box(0.12, 0.01, 0.07), 0x8b5a2b, 0, 0.545, 0),
+  ...[-1, 1].map((k) => part(box(0.12, 0.045, 0.006), 0x8b5a2b, 0, 0.572, k * 0.032)),
+  ...[-1, 1].map((k) => part(box(0.006, 0.045, 0.058), 0x8b5a2b, k * 0.057, 0.572, 0)),
+  part(box(0.006, 0.1, 0.006), 0x6b4420, 0, 0.6, 0), part(box(0.1, 0.008, 0.008), 0x6b4420, 0, 0.65, 0),
+  ...[-0.03, 0.03].map((x) => part(shell([[0, 0], [0.018, 0], [0.018, 0.07], [0.008, 0.09], [0.008, 0.1], [0, 0.1]], 10), [0xb5251d, 0x6b3b17][x > 0 ? 1 : 0], x, 0.55, 0)),
   ...[0, 0.01, 0.02].map((d) => part(cyl(0.003, 0.003, 0.24, 4), 0xc9a46a, 0.0 + d, 0.6, -0.2, 0, 0, Math.PI / 2)),
 ]);
 const CART = merge([
   part(box(1.25, 0.72, 0.62), 0xc5c9ce, 0, SLAB + 0.5, 0),          // stainless body
   part(box(1.29, 0.04, 0.66), 0x8b5a2b, 0, SLAB + 0.88, 0),         // wooden top
   part(box(1.25, 0.05, 0.62), 0x7d8287, 0, SLAB + 0.16, 0),         // shelf
+  ...[-1, 1].flatMap((sd) => [-0.3, 0.3].flatMap((x) => [            // two cupboard doors a side, each with a handle
+    part(box(0.56, 0.52, 0.012), 0xb3b8be, x, SLAB + 0.5, sd * 0.316),
+    rod([x + (x < 0 ? 0.2 : -0.2), SLAB + 0.42, sd * 0.33], [x + (x < 0 ? 0.2 : -0.2), SLAB + 0.6, sd * 0.33], 0.008, 0x6d7177)])),
   ...[[-0.5, 0.33], [0.5, 0.33], [-0.5, -0.33], [0.5, -0.33]].map(([x, z]) => part(new THREE.TorusGeometry(0.12, 0.035, 6, 14), 0x1b1b1b, x, SLAB + 0.12, z)),
   ...[[-0.6, 0.3], [0.6, 0.3], [-0.6, -0.3], [0.6, -0.3]].map(([x, z]) => part(box(0.03, 0.42, 0.03), 0xaab0b6, x, SLAB + 1.11, z)),   // the glass case's posts
   part(box(1.25, 0.03, 0.62), 0xaab0b6, 0, SLAB + 1.33, 0),
@@ -126,27 +158,42 @@ const CART = merge([
 ]);
 const CART_GLASS = part(box(1.18, 0.4, 0.58), 0xffffff, -0.05, SLAB + 1.11, 0);
 const UMBRELLA_POLE = merge([part(cyl(0.025, 0.025, 2.35, 8), 0xdcdcdc, 0, SLAB + 1.175, 0), part(cyl(0.2, 0.25, 0.08, 12), 0x8a8f94, 0, SLAB + 0.04, 0)]);
-const UMBRELLA = (() => {   // a canopy of alternating panels
-  const g = new THREE.CylinderGeometry(0.04, 1.35, 0.42, 12, 1, true).toNonIndexed();
-  g.translate(0, SLAB + 2.3, 0);
+const UMBRELLA = (() => {   // a canopy of alternating panels: a cloth with thickness and a hem, sagging between 12 ribs
+  const g = shell([[0, 0.25], [0.06, 0.24], [0.4, 0.13], [0.85, -0.03], [1.35, -0.21], [1.37, -0.25], [1.34, -0.26], [0.84, -0.06], [0.39, 0.1], [0.06, 0.2], [0, 0.2]], 48).toNonIndexed();
   const pos = g.attributes.position, col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {   // between two ribs the cloth hangs a little lower
+    const x = pos.getX(i), z = pos.getZ(i), rr = Math.hypot(x, z);
+    pos.setY(i, pos.getY(i) - Math.abs(Math.sin(Math.atan2(z, x) * 6)) * 0.07 * (rr / 1.35) ** 1.5);
+  }
+  pos.applyMatrix4(new THREE.Matrix4().makeTranslation(0, SLAB + 2.3, 0));
   const a = new THREE.Color(0xd8402f), b = new THREE.Color(0xf4efe4);
-  for (let i = 0; i < pos.count; i++) {
-    const k = Math.floor(((Math.atan2(pos.getZ(i), pos.getX(i)) + Math.PI) / (Math.PI * 2)) * 12 + 0.5) % 12, c = k % 2 ? a : b;
-    col.set([c.r, c.g, c.b], i * 3);
+  for (let i = 0; i < pos.count; i += 3) {   // a panel's colour by its triangle's middle, so the seams stay sharp
+    const x = pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2), z = pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2);
+    const c = Math.floor(((Math.atan2(z, x) + Math.PI) / (Math.PI * 2)) * 12) % 2 ? a : b;
+    for (let k = 0; k < 3; k++) col.set([c.r, c.g, c.b], (i + k) * 3);
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  g.computeBoundingSphere();
+  g.computeVertexNormals();
   return g;
 })();
+// under the canopy: the ribs, the runner on the pole and the struts up to them, a finial on top
+const UMBRELLA_RIBS = merge(Array.from({ length: 12 }, (_, k) => {
+  const a = k / 6 * Math.PI, c = Math.cos(a), sn = Math.sin(a), y = SLAB + 2.3;
+  return [rod([c * 0.06, y + 0.19, sn * 0.06], [c * 1.33, y - 0.27, sn * 1.33], 0.008, 0xc8c8c8, 4), rod([0, y - 0.32, 0], [c * 0.62, y - 0.02, sn * 0.62], 0.006, 0xb0b0b0, 4)];
+}).flat().concat([part(cyl(0.035, 0.035, 0.09, 10), 0xb8b8b8, 0, SLAB + 1.98, 0), part(new THREE.SphereGeometry(0.035, 10, 6), 0x9a9a9a, 0, SLAB + 2.57, 0)]));
 // a market stall: a table of goods under a tarp on four poles
 const STALL = merge([
   part(box(2.3, 0.06, 0.95), 0x8b6a45, 0, SLAB + 0.78, 0),
   ...[[-1.05, 0.4], [1.05, 0.4], [-1.05, -0.4], [1.05, -0.4]].map(([x, z]) => part(box(0.06, 0.78, 0.06), 0x6b5236, x, SLAB + 0.39, z)),
   ...[[-1.25, 0.95], [1.25, 0.95], [-1.25, -0.75], [1.25, -0.75]].map(([x, z]) => part(cyl(0.025, 0.025, z > 0 ? 2.05 : 2.35, 6), 0x9aa0a6, x, SLAB + (z > 0 ? 1.025 : 1.175), z)),
-  part(box(0.5, 0.42, 0.5), 0x8a6c49, 0, SLAB + 0.21, -0.85),   // a crate behind
+  // a crate behind: corner posts and slats with gaps between them
+  ...[[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([a, b]) => part(box(0.04, 0.42, 0.04), 0x6e5436, a * 0.23, SLAB + 0.21, -0.85 + b * 0.23)),
+  ...[0.05, 0.17, 0.29, 0.39].flatMap((y) => [[0, 1], [0, -1], [1, 0], [-1, 0]].map(([x, z]) => part(box(x ? 0.015 : 0.46, 0.08, x ? 0.46 : 0.015), 0x8a6c49, x * 0.245, SLAB + y, -0.85 + z * 0.245))),
+  part(box(0.46, 0.015, 0.46), 0x8a6c49, 0, SLAB + 0.02, -0.85),
 ]);
-const TARP = part(box(2.7, 0.03, 1.95), 0xffffff, 0, SLAB + 2.2, 0.1, -0.16, 0, 0);
+const TARP = merge([part(box(2.7, 0.03, 1.95), 0xffffff, 0, SLAB + 2.2, 0.1, -0.16, 0, 0),   // the sheet, and its hem hanging at the front and back
+  part(box(2.7, 0.2, 0.02), 0xffffff, 0, SLAB + 2.255, 1.063), part(box(2.7, 0.2, 0.02), 0xffffff, 0, SLAB + 1.945, -0.863)]);
+const FOLDED = extrude([[-0.19, -0.005], [0.19, -0.005], [0.19, 0.005], [-0.19, 0.005]], 0.32, 0.02);   // a folded garment: soft rounded edges
 const GOODS = (() => {
   const fruit = [], veg = [], cloth = [];
   const r = seeded(77);
@@ -161,7 +208,7 @@ const GOODS = (() => {
   }
   for (let k = 0; k < 8; k++) {
     const x = -0.85 + (k % 4) * 0.56, z = -0.2 + Math.floor(k / 4) * 0.42, h = 3 + Math.floor(r() * 4);
-    for (let s = 0; s < h; s++) cloth.push(part(box(0.42, 0.05, 0.32), pickOf(r, [0xc0392b, 0x2e86c1, 0xf1c40f, 0x8e44ad, 0xe67e22, 0x16a085, 0xecf0f1]), x, SLAB + 0.84 + s * 0.052, z, 0, (r() - 0.5) * 0.15, 0));
+    for (let s = 0; s < h; s++) cloth.push(part(FOLDED.clone(), pickOf(r, [0xc0392b, 0x2e86c1, 0xf1c40f, 0x8e44ad, 0xe67e22, 0x16a085, 0xecf0f1]), x, SLAB + 0.84 + s * 0.052, z, 0, (r() - 0.5) * 0.15, 0));
   }
   return [merge(fruit), merge(veg), merge(cloth)];
 })();
@@ -186,7 +233,8 @@ const VENDOR_BIKE = (() => {
     const l = Math.floor(k / 14), x = -0.85 + (k % 7) * 0.075 + (l % 2) * 0.03, z = -0.2 + (Math.floor(k / 7) % 2) * 0.2 + r() * 0.05;
     fruit.push(part(new THREE.SphereGeometry(0.07, 9, 6), pickOf(r, [0xf08c1e, 0xe6c22c, 0x7cb342, 0xc8242a]), x + 0.18, 0.86 + l * 0.11, z));
   }
-  fruit.push(part(cyl(0.3, 0.26, 0.2, 14, true), 0xb48a4e, -0.62, 0.9, 0));   // a basket
+  fruit.push(part(shell([[0, 0], [0.26, 0], [0.3, 0.2], [0.315, 0.21], [0.3, 0.222], [0.284, 0.2], [0.246, 0.02], [0, 0.02]], 18), 0xb48a4e, -0.62, 0.8, 0));   // a basket
+  for (const [y, rr] of [[0.06, 0.274], [0.13, 0.288]]) fruit.push(part(new THREE.TorusGeometry(rr, 0.008, 4, 22), 0x94703c, -0.62, 0.8 + y, 0, Math.PI / 2, 0, 0));   // its woven bands
   return [merge([...frame(0x2f5d8a), ...flowers]), merge([...frame(0x7a2f2f), ...fruit])];
 })();
 // a vendor's shoulder pole and two baskets of goods, carried on the right shoulder (local: +z is forward)
@@ -194,7 +242,8 @@ const GANH = (() => {
   const r = seeded(5), parts = [rod([0.2, 1.42, -0.85], [0.2, 1.47, 0.85], 0.022, 0x9b7a45)];
   for (const s of [-1, 1]) {
     const z = s * 0.78;
-    parts.push(part(new THREE.LatheGeometry([[0.0, 0], [0.2, 0.02], [0.27, 0.2], [0.28, 0.22]].map(([x, y]) => new THREE.Vector2(x, y)), 14), 0xb08a52, 0.2, 0.3, z));
+    parts.push(part(shell([[0, 0], [0.2, 0.02], [0.27, 0.2], [0.285, 0.222], [0.268, 0.226], [0.256, 0.2], [0.19, 0.036], [0, 0.034]], 16), 0xb08a52, 0.2, 0.3, z));
+    for (const [y, rr] of [[0.08, 0.222], [0.15, 0.248]]) parts.push(part(new THREE.TorusGeometry(rr, 0.007, 4, 20), 0x8f6c3c, 0.2, 0.3 + y, z, Math.PI / 2, 0, 0));
     for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + 0.4; parts.push(rod([0.2 + Math.cos(a) * 0.27, 0.52, z + Math.sin(a) * 0.27], [0.2, 1.44 + s * 0.02, z], 0.006, 0x3d3226, 4)); }
     for (let k = 0; k < 14; k++) parts.push(part(new THREE.SphereGeometry(0.06, 8, 5), pickOf(r, s > 0 ? [0xf08c1e, 0xe6c22c, 0x7cb342] : [0x5aa83f, 0xc8242a, 0xf2e3b3]), 0.2 + (r() - 0.5) * 0.32, 0.52 + r() * 0.06, z + (r() - 0.5) * 0.32));
   }
@@ -241,13 +290,16 @@ function makeServing(dish) {
   }
   // a glass: clear walls, the drink inside, ice cubes, a straw
   const drink = { coffee: 0x3a2312, cane: 0xd9d68a, che: 0xc98fb8 }[kind];
-  add(new THREE.CylinderGeometry(0.038, 0.032, 0.13, 20, 1, true), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.05, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false }), 0, 0.065, 0);
-  add(new THREE.CylinderGeometry(0.032, 0.032, 0.006, 20), BOWL_MAT.ceramic, 0, 0.003, 0).material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.05, transparent: true, opacity: 0.4 });
+  // the glass is lathed whole: a thick base, walls 2.5 mm thick, a rounded lip (inside: 0.0298 at the base to 0.0355 at the top)
+  add(shell([[0, 0], [0.031, 0], [0.032, 0.002], [0.038, 0.128], [0.0372, 0.1305], [0.0358, 0.1295], [0.0298, 0.0075], [0, 0.0075]], 28),
+    new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.05, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }), 0, 0, 0).castShadow = false;
+  const inner = (y) => 0.0296 + 0.0057 * (y - 0.0075) / 0.122;   // what fills the glass touches its inside wall
+  const fill = (y0, y1, color, extra) => add(new THREE.CylinderGeometry(inner(y1), inner(y0), y1 - y0, 20), std(color, extra), 0, (y0 + y1) / 2, 0);
   if (kind === 'che') {
-    add(new THREE.CylinderGeometry(0.031, 0.031, 0.035, 18), std(0x5a8a3a, { transparent: true, opacity: 0.9 }), 0, 0.022, 0);
-    add(new THREE.CylinderGeometry(0.033, 0.031, 0.04, 18), std(0xf0e6c8, { transparent: true, opacity: 0.9 }), 0, 0.06, 0);
-    add(new THREE.CylinderGeometry(0.035, 0.033, 0.03, 18), std(drink, { transparent: true, opacity: 0.9 }), 0, 0.095, 0);
-  } else add(new THREE.CylinderGeometry(0.035, 0.031, 0.1, 18), std(drink, { roughness: 0.15, transparent: true, opacity: 0.85 }), 0, 0.055, 0);
+    fill(0.0075, 0.04, 0x5a8a3a, { transparent: true, opacity: 0.9 });
+    fill(0.04, 0.08, 0xf0e6c8, { transparent: true, opacity: 0.9 });
+    fill(0.08, 0.11, drink, { transparent: true, opacity: 0.9 });
+  } else fill(0.0075, 0.105, drink, { roughness: 0.15, transparent: true, opacity: 0.85 });
   for (let k = 0; k < 4; k++) { const ice = add(new THREE.BoxGeometry(0.022, 0.022, 0.022), std(0xeaf4fa, { roughness: 0.05, transparent: true, opacity: 0.6 }), (Math.random() - 0.5) * 0.03, 0.1 + Math.random() * 0.015, (Math.random() - 0.5) * 0.03); ice.rotation.set(Math.random(), Math.random(), 0); }
   const straw = add(new THREE.CylinderGeometry(0.004, 0.004, 0.2, 8), std(0xe84a5f), 0.012, 0.13, 0); straw.rotation.z = -0.25;
   g.userData.steam = [];
@@ -258,7 +310,8 @@ function makeBowl() {
   const prof = [[0.0, 0], [0.04, 0], [0.05, 0.012], [0.075, 0.03], [0.095, 0.065], [0.105, 0.09], [0.1, 0.092], [0.09, 0.066], [0.068, 0.034], [0.0, 0.02]].map(([x, y]) => new THREE.Vector2(x, y));
   g.add(new THREE.Mesh(new THREE.LatheGeometry(prof, 28), BOWL_MAT.ceramic));
   const rim = new THREE.Mesh(new THREE.TorusGeometry(0.103, 0.005, 6, 32), BOWL_MAT.rim); rim.rotation.x = Math.PI / 2; rim.position.y = 0.09; g.add(rim);
-  const broth = new THREE.Mesh(new THREE.CircleGeometry(0.093, 28), BOWL_MAT.broth); broth.rotation.x = -Math.PI / 2; broth.position.y = 0.075; g.add(broth);
+  // the broth: a body of soup filling the bowl up to 0.075, its sides on the bowl's inside wall
+  g.add(new THREE.Mesh(shell([[0, 0.021], [0.067, 0.035], [0.089, 0.066], [0.0925, 0.075], [0, 0.075]], 28), BOWL_MAT.broth));
   for (let k = 0; k < 7; k++) {
     const n = new THREE.Mesh(new THREE.TorusGeometry(0.025 + Math.random() * 0.03, 0.0035, 5, 18, Math.PI * (1 + Math.random())), BOWL_MAT.noodle);
     n.rotation.set(Math.PI / 2 + (Math.random() - 0.5) * 0.3, 0, Math.random() * 6.28); n.position.set((Math.random() - 0.5) * 0.08, 0.077, (Math.random() - 0.5) * 0.08); g.add(n);
@@ -364,7 +417,9 @@ export function createStreetLife(host, street) {
           }
           const um = L(-2.1 - (tables - 1) * 0.675, 0.85);
           add(UMBRELLA_POLE, MAT.vc, at(um.x, 0, um.z, 0), null, { shadow: false });
-          add(UMBRELLA, MAT.vc2, at(um.x, 0, um.z, r() * 6.28));
+          const umr = r() * 6.28;
+          add(UMBRELLA, MAT.vc2, at(um.x, 0, um.z, umr));
+          add(UMBRELLA_RIBS, MAT.vc, at(um.x, 0, um.z, umr), null, { detail: true, shadow: false });
           const pot = L(-0.75 + 0.42, 0.75);   // the pot sits at the cart's +x end
           stalls.push({ seats, dish: pickOf(r, DISHES), sign: L(-0.75, 1.07), ry, pot, at: L(-len / 2, 1) });
           boxAround([L(0.05, 0.05), L(-len + 0.05, 1.95)], 'stall');

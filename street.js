@@ -62,7 +62,9 @@ const SHAPE = (() => {
   ]);
   const glass = extrude([[0.86, 0.98], [0.32, 1.33], [-1.15, 1.37], [-1.62, 1.0]], 1.6, 0.02);
   const trim = mergeGeometries([
-    at(new THREE.BoxGeometry(4.5, 0.16, 1.82), 0, 0.3, 0),                          // sills and the bumpers' lower band
+    // the bumpers' lower band and the sills, cut round the wheels (wheel arches), the floor pan between
+    at(new THREE.BoxGeometry(0.5, 0.16, 1.82), 2.03, 0.3, 0), at(new THREE.BoxGeometry(0.45, 0.16, 1.82), -2.05, 0.3, 0), at(new THREE.BoxGeometry(2.1, 0.16, 1.82), -0.02, 0.3, 0),
+    at(new THREE.BoxGeometry(4.5, 0.16, 1.24), 0, 0.3, 0),
     at(new THREE.BoxGeometry(0.06, 0.18, 1.2), 2.28, 0.5, 0),                       // grille
     at(new THREE.BoxGeometry(0.06, 0.42, 0.06), -0.4, 1.17, 0.78), at(new THREE.BoxGeometry(0.06, 0.42, 0.06), -0.4, 1.17, -0.78),   // B pillars
     at(new THREE.BoxGeometry(0.22, 0.1, 0.06), 0.66, 1.0, 0.95), at(new THREE.BoxGeometry(0.22, 0.1, 0.06), 0.66, 1.0, -0.95),     // mirrors
@@ -77,18 +79,26 @@ const SHAPE = (() => {
   const tail = mergeGeometries([at(new THREE.BoxGeometry(0.06, 0.12, 0.4), -2.27, 0.74, 0.62), at(new THREE.BoxGeometry(0.06, 0.12, 0.4), -2.27, 0.74, -0.62)]);
   const plate = mergeGeometries([at(new THREE.BoxGeometry(0.02, 0.12, 0.42), 2.32, 0.42, 0), at(new THREE.BoxGeometry(0.02, 0.12, 0.42), -2.32, 0.5, 0)]);
   // inside: two front seats, a back bench, the dashboard, the steering wheel (driver on the left, -z)
-  const seatOne = (x, z) => [at(new THREE.BoxGeometry(0.5, 0.1, 0.48), x, 0.68, z), at(new THREE.BoxGeometry(0.12, 0.58, 0.46), x - 0.27, 0.98, z, 0, 0, 0.18),
-    at(new THREE.BoxGeometry(0.1, 0.16, 0.26), x - 0.36, 1.32, z, 0, 0, 0.18)];
-  const seat = mergeGeometries([...seatOne(-0.4, -0.38), ...seatOne(-0.4, 0.38), at(new THREE.BoxGeometry(0.5, 0.12, 1.4), -1.25, 0.72, 0), at(new THREE.BoxGeometry(0.12, 0.55, 1.4), -1.52, 1.0, 0, 0, 0, 0.15)]);
+  // upholstered: every cushion a padded block with rounded edges (w × h in x/y, d deep in z)
+  const pad = (w, h, d, x, y, z, rz = 0) => at(extrude([[-w / 2 + 0.03, -h / 2 + 0.03], [w / 2 - 0.03, -h / 2 + 0.03], [w / 2 - 0.03, h / 2 - 0.03], [-w / 2 + 0.03, h / 2 - 0.03]], d, 0.03), x, y, z, 0, 0, rz);
+  const seatOne = (x, z) => [pad(0.5, 0.1, 0.48, x, 0.68, z), pad(0.12, 0.58, 0.46, x - 0.27, 0.98, z, 0.18), pad(0.1, 0.16, 0.26, x - 0.36, 1.32, z, 0.18),
+    at(new THREE.CylinderGeometry(0.012, 0.012, 0.1, 6), x - 0.33, 1.22, z, 0, 0, 0.18)];   // the headrest's stem
+  const seat = mergeGeometries([...seatOne(-0.4, -0.38), ...seatOne(-0.4, 0.38), ...[-0.35, 0.35].flatMap((z) => [pad(0.5, 0.12, 0.68, -1.25, 0.72, z), pad(0.12, 0.55, 0.68, -1.52, 1.0, z, 0.15)])]
+    .map((g) => (g.index ? g.toNonIndexed() : g)));
   const dash = mergeGeometries([
     at(new THREE.BoxGeometry(0.34, 0.2, 1.62), 0.72, 0.9, 0),                       // dashboard under the windscreen
     at(new THREE.BoxGeometry(0.2, 0.06, 0.34), 0.56, 1.0, -0.38),                   // instrument hood
     at(new THREE.CylinderGeometry(0.025, 0.03, 0.34, 8), 0.46, 0.92, -0.38, 0, 0, 1.0),   // steering column
   ]);
   const steer = at(new THREE.TorusGeometry(0.17, 0.02, 8, 28), 0.33, 0.98, -0.38, 0, Math.PI / 2, 0.45);
-  const tyre = new THREE.CylinderGeometry(0.36, 0.36, 0.26, 24).rotateX(Math.PI / 2);
-  const rim = mergeGeometries([new THREE.CylinderGeometry(0.24, 0.24, 0.275, 18).rotateX(Math.PI / 2),
-    ...[0, 1, 2, 3, 4].map((k) => at(new THREE.BoxGeometry(0.04, 0.4, 0.03), 0, 0, 0.12, 0, 0, k / 5 * Math.PI))]);
+  // a tyre with rounded shoulders round a dished wheel: a hub, five spokes standing out of the dish, a lip (both faces)
+  const lathe = (pts, n) => {   // wound so its faces look outwards
+    const cw = pts.reduce((a, [x, y], i) => { const [x2, y2] = pts[(i + 1) % pts.length]; return a + x * y2 - x2 * y; }, 0) < 0;
+    return new THREE.LatheGeometry((cw ? pts.slice().reverse() : pts).map(([r, y]) => new THREE.Vector2(r, y)), n).rotateX(Math.PI / 2);
+  };
+  const tyre = lathe([[0.25, -0.13], [0.31, -0.13], [0.345, -0.118], [0.36, -0.085], [0.36, 0.085], [0.345, 0.118], [0.31, 0.13], [0.25, 0.13], [0.25, -0.13]], 28);
+  const rim = mergeGeometries([lathe([[0, 0.1], [0.05, 0.1], [0.075, 0.075], [0.2, 0.075], [0.235, 0.125], [0.255, 0.125], [0.255, -0.125], [0.235, -0.125], [0.2, -0.075], [0.075, -0.075], [0.05, -0.1], [0, -0.1]], 20),
+    ...[1, -1].flatMap((f) => [0, 1, 2, 3, 4].map((k) => { const a = k / 5 * Math.PI * 2; return at(new THREE.BoxGeometry(0.045, 0.17, 0.03), Math.sin(a) * 0.14, Math.cos(a) * 0.14, f * 0.085, 0, 0, -a); }))]);
   return { body, cabin, glass, trim, chrome, head, tail, plate, seat, dash, steer, tyre, rim };
 })();
 const WHEELS = [[1.42, 0.8], [1.42, -0.8], [-1.45, 0.8], [-1.45, -0.8]];

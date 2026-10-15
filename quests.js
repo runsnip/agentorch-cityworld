@@ -15,43 +15,52 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const seeded = (seed) => () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
 const REACH = 2.2;
 
-// Light cast up from the ground, like a lamp set in the paving at night: a short cone (half a metre) widening
-// as it rises, a brighter core inside a soft halo, both fading at their edges and towards the top; the chest
-// floats just above it. (A chest is found from afar with the minimap and the compass.)
+// Light cast up from the ground, like a lamp set in the paving at night: a short column (half a metre) widening
+// as it rises, made of nested closed volumes (a soft halo, a middle layer, a bright core), added together and
+// each fading at its edges and towards the top; the chest floats just above it. Their feet start just under the
+// paving, so no edge shows. (A chest is found from afar with the minimap and the compass.)
 const BEAM_H = 0.55;
-const BEAM_GEO = new THREE.CylinderGeometry(0.62, 0.42, BEAM_H, 32, 1, true).translate(0, BEAM_H / 2 + 0.1, 0);
-const CORE_GEO = new THREE.CylinderGeometry(0.34, 0.2, BEAM_H, 24, 1, true).translate(0, BEAM_H / 2 + 0.1, 0);
+const column = (r0, r1, n) => new THREE.LatheGeometry([[0, 0.08], [r0, 0.08], [r0 + (r1 - r0) * 0.5, 0.1 + BEAM_H * 0.5], [r1, 0.1 + BEAM_H], [0, 0.1 + BEAM_H]]
+  .map(([x, y]) => new THREE.Vector2(x, y)), n);
+const BEAM_GEO = column(0.42, 0.62, 32), MID_GEO = column(0.31, 0.47, 28), CORE_GEO = column(0.18, 0.32, 24);
 // both layers share one set of uniforms (time, colour), each with its own strength
-function beamMaterials(color) {
+function beamMaterials(color, gain = 1) {
   const shared = { uTime: { value: 0 }, uColor: { value: new THREE.Color(color) } };
   const make = (strength) => new THREE.ShaderMaterial({
-    uniforms: { ...shared, uK: { value: strength } },
-    vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vView; varying vec3 vWorld;
+    uniforms: { ...shared, uK: { value: strength * gain } },
+    // (the app draws with a logarithmic depth buffer: without its chunks the beam would sink behind the paving)
+    vertexShader: `#include <common>
+      #include <logdepthbuf_pars_vertex>
+      varying float vH; varying float vCap; varying vec3 vN; varying vec3 vView; varying vec3 vWorld;
       void main() {
-        vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vCap = abs(normal.y); vH = clamp((position.y - 0.1) / ${BEAM_H.toFixed(2)}, 0.0, 1.0); vec4 mv = modelViewMatrix * vec4(position, 1.0);
         vView = -mv.xyz; vN = normalize(normalMatrix * normal); vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
         gl_Position = projectionMatrix * mv;
+        #include <logdepthbuf_vertex>
       }`,
-    fragmentShader: `uniform float uTime; uniform vec3 uColor; uniform float uK; varying vec2 vUv; varying vec3 vN; varying vec3 vView; varying vec3 vWorld;
+    fragmentShader: `#include <logdepthbuf_pars_fragment>
+      uniform float uTime; uniform vec3 uColor; uniform float uK; varying float vH; varying float vCap; varying vec3 vN; varying vec3 vView; varying vec3 vWorld;
       void main() {
-        float up = vUv.y;                                               // 0 at the ground, 1 at the top
+        #include <logdepthbuf_fragment>
+        float up = vH;                                                  // 0 at the ground, 1 at the top (the top cap: gone)
         float rise = pow(1.0 - up, 1.6);                                  // strong at the foot, gone at the top
         float facing = abs(dot(normalize(vN), normalize(vView)));        // 1 facing you, 0 side-on at the edges
-        float soft = pow(facing, 1.4);
+        float soft = pow(facing, 1.4) * (1.0 - 0.75 * vCap * vCap);       // the caps (seen from above) only faintly
         float bands = 0.8 + 0.2 * sin((up * 3.0 - uTime * 1.2) * 6.2832);
         gl_FragColor = vec4(min(uColor * (1.2 + 0.4 * bands), vec3(1.0)), rise * soft * bands * uK);
       }`,
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
   });
-  return { halo: make(0.85), core: make(1.0), uniforms: shared };
+  return { halo: make(0.55), mid: make(0.6), core: make(0.85), uniforms: shared };
 }
-// a soft glow pool on the ground at the foot of the beam
-const POOL_TEX = (() => {
-  const c = document.createElement('canvas'); c.width = c.height = 128;
-  const g = c.getContext('2d'), r = g.createRadialGradient(64, 64, 4, 64, 64, 64);
-  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.4, 'rgba(255,255,255,.45)'); r.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = r; g.fillRect(0, 0, 128, 128);
-  return new THREE.CanvasTexture(c);
+// the glow on the ground at the foot of the beam: a low lens of light 3 cm thick, bright in the middle and
+// fading to nothing at its rim (vertex colours, added onto the paving), its underside sunk into the slabs
+const POOL_GEO = (() => {
+  const g = new THREE.LatheGeometry([[0, 0.095], [1.62, 0.095], [1.6, 0.1], [1.4, 0.104], [1.2, 0.109], [1.0, 0.114], [0.8, 0.119], [0.6, 0.123], [0.4, 0.127], [0.2, 0.129], [0, 0.13]].map(([x, y]) => new THREE.Vector2(x, y)), 48);
+  const p = g.attributes.position, c = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) c.fill(0.9 * Math.max(0, 1 - Math.hypot(p.getX(i), p.getZ(i)) / 1.6) ** 2.4, i * 3, i * 3 + 3);
+  g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  return g;
 })();
 const SPARK_N = 24;
 const MOTE_GEO = new THREE.OctahedronGeometry(0.018);
@@ -61,12 +70,13 @@ const CHEST_SCALE = 1.15, CHEST_Y = 0.1 + BEAM_H + 0.12 + 0.25 * CHEST_SCALE;   
 function chestMesh(color = '#ffc23d') {
   const g = new THREE.Group();
   // the light: a pool on the ground, the column, sparks rising inside it
-  const pool = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), new THREE.MeshBasicMaterial({ map: POOL_TEX, color, transparent: true, opacity: 0.85,
+  const pool = new THREE.Mesh(POOL_GEO, new THREE.MeshBasicMaterial({ color, vertexColors: true, transparent: true, opacity: 0.85,
     blending: THREE.AdditiveBlending, depthWrite: false }));
-  pool.rotation.x = -Math.PI / 2; pool.position.y = 0.13; g.add(pool);   // over the paving slabs
+  g.add(pool);
   const mats = beamMaterials(color), beamMat = { uniforms: mats.uniforms };   // beamMat.uniforms: time and colour of both layers
   const beam = new THREE.Mesh(BEAM_GEO, mats.halo); beam.renderOrder = 2; g.add(beam);
-  const core = new THREE.Mesh(CORE_GEO, mats.core); core.renderOrder = 3; g.add(core);
+  const mid = new THREE.Mesh(MID_GEO, mats.mid); mid.renderOrder = 3; g.add(mid);
+  const core = new THREE.Mesh(CORE_GEO, mats.core); core.renderOrder = 4; g.add(core);
   const seeds = [];
   for (let k = 0; k < SPARK_N; k++) seeds.push([Math.random() * 6.283, 0.15 + Math.random() * 0.6, Math.random(), 0.6 + Math.random() * 0.8]);
   // motes drifting up in the light: tiny glowing crystals, real little solids
@@ -78,7 +88,16 @@ function chestMesh(color = '#ffc23d') {
   const wood = new THREE.MeshStandardMaterial({ color: '#5a3b22', roughness: 0.7 });
   const trim = new THREE.MeshStandardMaterial({ color: '#d9a640', roughness: 0.3, metalness: 0.85, emissive: '#3a2600', emissiveIntensity: 0.4 });
   const box = (m, w, h, d, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.castShadow = true; chest.add(o); return o; };
-  box(wood, 0.9, 0.5, 0.6, 0, 0, 0);
+  // the body: planks with dark gaps between them over a darker carcass, iron-bound, studded, a lock with a keyhole
+  const dark = new THREE.MeshStandardMaterial({ color: '#2e1d10', roughness: 0.9 });
+  box(dark, 0.86, 0.48, 0.56, 0, 0, 0);
+  for (const y of [-0.16, 0, 0.16]) {
+    for (const z of [-0.29, 0.29]) box(wood, 0.84, 0.15, 0.03, 0, y, z);
+    for (const x of [-0.44, 0.44]) box(wood, 0.03, 0.15, 0.56, x, y, 0);
+  }
+  const stud = new THREE.SphereGeometry(0.014, 8, 6);
+  for (const x of [-0.4, 0.4]) for (const y of [-0.18, 0, 0.18]) for (const z of [-0.315, 0.315]) { const o = new THREE.Mesh(stud, trim); o.position.set(x, y, z); chest.add(o); }
+  const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.012, 10), dark); hole.rotation.x = Math.PI / 2; hole.position.set(0, 0.16, 0.335); chest.add(hole);
   const lid = new THREE.Group(); lid.position.set(0, 0.25, -0.3); chest.add(lid);
   const top = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.9, 16, 1, false, 0, Math.PI), wood);
   top.rotation.z = Math.PI / 2; top.position.set(0, 0, 0.3); top.castShadow = true; lid.add(top);
@@ -110,14 +129,14 @@ function animateChest(m, t, i) {
 }
 
 function markMesh() {
-  const g = new THREE.Group();
-  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.6, BEAM_H, 20, 1, true),
-    new THREE.MeshBasicMaterial({ color: '#3fb8f0', transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide }));
-  beam.position.y = BEAM_H / 2; g.add(beam);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.15, 40),
-    new THREE.MeshBasicMaterial({ color: '#5fd0ff', transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide }));
-  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.13; g.add(ring);
-  g.userData = { beam, ring };
+  // the same light as a chest's, in blue, and a ring round it on the ground: a real torus, flattened
+  const g = new THREE.Group(), mats = beamMaterials('#3fb8f0', 1.5);   // stronger: it has no chest over it
+  const beam = new THREE.Mesh(BEAM_GEO, mats.halo); beam.renderOrder = 2; g.add(beam);
+  const mid = new THREE.Mesh(MID_GEO, mats.mid); mid.renderOrder = 3; g.add(mid);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(1.02, 0.07, 8, 48),
+    new THREE.MeshBasicMaterial({ color: '#5fd0ff', transparent: true, opacity: 0.75, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2; ring.scale.z = 0.35; ring.position.y = 0.11; g.add(ring);
+  g.userData = { beamMat: { uniforms: mats.uniforms }, ring };
   return g;
 }
 
@@ -343,7 +362,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       if (!out && detailId) { detailId = null; detail.classList.add('hidden'); }
       if (state && Date.now() / 1000 > state.ends_at) { state.ends_at = Infinity; call('cityState'); }   // a new day
       for (const [id, m] of marks) {
-        m.userData.beam.material.opacity = 0.34 + 0.1 * Math.sin(time * 2.5);
+        m.userData.beamMat.uniforms.uTime.value = time;
         m.userData.ring.scale.setScalar(1 + 0.12 * Math.sin(time * 3));
         if (out && Math.hypot(m.position.x - p.x, m.position.z - p.z) < 1.6) { group.remove(m); marks.delete(id); report({ visit: id }); }
       }
