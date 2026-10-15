@@ -17,7 +17,9 @@ const REACH = 2.2;
 
 // A column of light rising from the ground: bright at the foot, fading out as it climbs, faint bands
 // drifting up it. Shared shapes; each chest has its own material (its own time and colour).
-const BEAM_GEO = new THREE.CylinderGeometry(0.75, 0.95, 7, 32, 1, true).translate(0, 3.5, 0);
+// Tall enough to stand over the trees and low roofs, so a chest can be spotted from blocks away.
+const BEAM_H = 38;
+const BEAM_GEO = new THREE.CylinderGeometry(0.75, 0.95, BEAM_H, 32, 1, true).translate(0, BEAM_H / 2, 0);
 function beamMaterial(color) {
   return new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(color) } },
@@ -25,12 +27,13 @@ function beamMaterial(color) {
     fragmentShader: `uniform float uTime; uniform vec3 uColor; varying vec2 vUv;
       void main() {
         float up = vUv.y;                                            // 0 at the ground, 1 at the top
-        float fade = pow(1.0 - up, 1.6);
-        float bands = 0.65 + 0.35 * sin((up * 9.0 - uTime * 2.2) * 6.2832);
-        float edge = 0.55 + 0.45 * sin(vUv.x * 6.2832 * 3.0 + uTime * 0.7);
-        gl_FragColor = vec4(uColor * (1.2 + 0.6 * bands), fade * (0.32 + 0.18 * bands) * edge);
+        float fade = mix(1.0, 0.25, up) * smoothstep(1.0, 0.85, up);  // still strong high up, soft at the very top
+        float bands = 0.65 + 0.35 * sin((up * 40.0 - uTime * 2.2) * 6.2832);
+        float edge = 0.7 + 0.3 * sin(vUv.x * 6.2832 * 3.0 + uTime * 0.7);
+        // normal blending, not additive: an additive glow vanishes against a daytime sky and white walls
+        gl_FragColor = vec4(min(uColor * (1.15 + 0.35 * bands), vec3(1.0)), fade * (0.6 + 0.2 * bands) * edge);
       }`,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
   });
 }
 // a soft glow pool on the ground at the foot of the beam
@@ -48,7 +51,7 @@ function chestMesh(color = '#ffd77a') {
   // the light: a pool on the ground, the column, sparks rising inside it
   const pool = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), new THREE.MeshBasicMaterial({ map: POOL_TEX, color, transparent: true, opacity: 0.85,
     blending: THREE.AdditiveBlending, depthWrite: false }));
-  pool.rotation.x = -Math.PI / 2; pool.position.y = 0.03; g.add(pool);
+  pool.rotation.x = -Math.PI / 2; pool.position.y = 0.13; g.add(pool);   // over the paving slabs
   const beamMat = beamMaterial(color);
   const beam = new THREE.Mesh(BEAM_GEO, beamMat); g.add(beam);
   const sparkGeo = new THREE.BufferGeometry(), sp = new Float32Array(SPARK_N * 3), seeds = [];
@@ -57,7 +60,7 @@ function chestMesh(color = '#ffd77a') {
   const sparks = new THREE.Points(sparkGeo, new THREE.PointsMaterial({ color, size: 0.09, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
   g.add(sparks);
   // the chest, floating in the light
-  const chest = new THREE.Group(); chest.position.y = 1.1; g.add(chest);
+  const chest = new THREE.Group(); chest.position.y = 1.1; chest.scale.setScalar(1.35); g.add(chest);
   const wood = new THREE.MeshStandardMaterial({ color: '#5a3b22', roughness: 0.7 });
   const trim = new THREE.MeshStandardMaterial({ color: '#d9a640', roughness: 0.3, metalness: 0.85, emissive: '#3a2600', emissiveIntensity: 0.4 });
   const box = (m, w, h, d, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.castShadow = true; chest.add(o); return o; };
@@ -93,12 +96,12 @@ function animateChest(m, t, i) {
 
 function markMesh() {
   const g = new THREE.Group();
-  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.6, 14, 20, 1, true),
-    new THREE.MeshBasicMaterial({ color: '#5fd0ff', transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-  beam.position.y = 7; g.add(beam);
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.6, BEAM_H, 20, 1, true),
+    new THREE.MeshBasicMaterial({ color: '#3fb8f0', transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide }));
+  beam.position.y = BEAM_H / 2; g.add(beam);
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.15, 40),
     new THREE.MeshBasicMaterial({ color: '#5fd0ff', transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide }));
-  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04; g.add(ring);
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.13; g.add(ring);
   g.userData = { beam, ring };
   return g;
 }
@@ -296,6 +299,13 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       return true;
     },
     report,
+    // where today's chests and the marked places are, for the minimap and the compass
+    markers() {
+      const out = [];
+      for (const m of chests.values()) if (!m.userData.opening) out.push({ kind: 'chest', x: m.position.x, z: m.position.z });
+      for (const m of marks.values()) out.push({ kind: 'visit', x: m.position.x, z: m.position.z });
+      return out;
+    },
     update(dt) {
       time += dt;
       const p = player.root.position, out = isOutdoors();
@@ -304,7 +314,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       if (!out && detailId) { detailId = null; detail.classList.add('hidden'); }
       if (state && Date.now() / 1000 > state.ends_at) { state.ends_at = Infinity; call('cityState'); }   // a new day
       for (const [id, m] of marks) {
-        m.userData.beam.material.opacity = 0.18 + 0.1 * Math.sin(time * 2.5);
+        m.userData.beam.material.opacity = 0.34 + 0.1 * Math.sin(time * 2.5);
         m.userData.ring.scale.setScalar(1 + 0.12 * Math.sin(time * 3));
         if (out && Math.hypot(m.position.x - p.x, m.position.z - p.z) < 1.6) { group.remove(m); marks.delete(id); report({ visit: id }); }
       }
@@ -317,7 +327,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
           animateChest(m, time, i);
           m.userData.lid.rotation.x = -1.9 * Math.min(1, o * 2);
           m.userData.chest.position.y += o * 0.8;
-          m.userData.chest.scale.setScalar(1 - Math.max(0, o - 0.6) * 2.4);
+          m.userData.chest.scale.setScalar(1.35 * (1 - Math.max(0, o - 0.6) * 2.4));
           m.userData.beamMat.uniforms.uColor.value.multiplyScalar(0.96);
           m.userData.pool.material.opacity *= 1 - o;
           if (o >= 1) { group.remove(m); chests.delete(i); }

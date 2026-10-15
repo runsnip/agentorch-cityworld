@@ -14,6 +14,7 @@ if (lang !== 'vi') {
 const { createCityQuests } = await import('./quests.js');
 const { createBagTab } = await import('./bag.js');
 const { createStreet } = await import('./street.js');
+const { createMinimap } = await import('./minimap.js');
 
 export async function install(host) {
   const css = document.createElement('link');
@@ -33,6 +34,10 @@ export async function install(host) {
   host.onFrame((dt) => quests.update(dt));
   host.onHint(() => (street.driving ? '' : quests.hint ? `<kbd>F</kbd> ${quests.hint}` : street.hint()));
   host.onKey((e) => (!street.driving && e.code === 'KeyF' && !e.repeat && quests.open()) || street.key(e));
+  // the way around: a minimap that turns with the view, a compass across the top
+  const minimap = createMinimap({ city: host.city, camera: host.camera, player: host.player, isOutdoors: () => host.isOutdoors(),
+    uiBusy: () => host.uiBusy?.() ?? false, markers: () => quests.markers() });
+  host.onFrame((dt) => minimap.update(dt));
   host.onEvent('lift', () => quests.report({ lift: 1 }));
   host.onEvent('reception', () => quests.report({ reception: 1 }));
   host.onEvent('company', () => host.callPy('cityState'));

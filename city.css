@@ -132,3 +132,16 @@
 #quest-detail .qd-rar { flex: none; padding: 2px 8px; font: 900 10px -apple-system, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: #0a0d14; background: var(--rc); }
 #quest-detail .qd-close { position: absolute; right: 8px; top: 6px; width: 24px; height: 24px; border: 0; cursor: pointer; font-size: 18px; color: #aab3c2; background: none; }
 #quest-detail .qd-close:hover { color: #fff; }
+/* finding the way outdoors: the minimap (top left, turning with the view) and the compass strip on top */
+#city-minimap { position: fixed; z-index: 13; left: 16px; top: 16px; width: 196px; height: 196px; pointer-events: none; animation: gf-fade .2s;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,.45)); }
+#city-minimap canvas { width: 196px; height: 196px; display: block; }
+#city-minimap .mm-north { position: absolute; left: 87px; top: 87px; width: 22px; height: 22px; display: grid; place-items: center;
+  font: 900 12px -apple-system, sans-serif; color: #0a0d14; background: #ff6b5b; border: 2px solid #0a0d14; border-radius: 50%; }
+#city-compass { position: fixed; z-index: 13; left: 50%; top: 10px; width: 460px; transform: translateX(-50%); pointer-events: none; animation: gf-fade .2s; }
+#city-compass canvas { width: 460px; height: 46px; display: block;
+  background: linear-gradient(90deg, transparent, rgba(8,11,18,.82) 18%, rgba(8,11,18,.82) 82%, transparent); }
+#city-compass .cc-home { display: flex; justify-content: center; gap: 16px; margin-top: 3px; font: 700 11.5px -apple-system, sans-serif; color: #d6dbe4;
+  text-shadow: 0 1px 3px #000; }
+#city-compass .cc-hq b { color: #d9b26f; } #city-compass .cc-chest b { color: #ffcf4a; }
+#city-minimap.hidden, #city-compass.hidden { display: none; }

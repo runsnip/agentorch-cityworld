@@ -120,6 +120,19 @@
   "Tiến độ": "Progress",
   "Đã nhận thưởng": "Reward claimed",
   "Phần thưởng": "Reward",
-  "Một món ngẫu nhiên từ bậc này trở lên, tung lúc hoàn thành. Hết ngày chưa xong là mất.": "A random item of this tier or higher, rolled when you finish. Lost if not done by the end of the day."
+  "Một món ngẫu nhiên từ bậc này trở lên, tung lúc hoàn thành. Hết ngày chưa xong là mất.": "A random item of this tier or higher, rolled when you finish. Lost if not done by the end of the day.",
+  "Ơ, xe của tôi mà!": "Hey, that's my car!",
+  "Sếp cần thì sếp cứ lấy…": "If you need it, boss, take it…",
+  "Trời đất, cướp xe giữa ban ngày!": "Good grief, a car stolen in broad daylight!",
+  "B": "N",
+  "ĐB": "NE",
+  "Đ": "E",
+  "ĐN": "SE",
+  "N": "S",
+  "TN": "SW",
+  "T": "W",
+  "TB": "NW",
+  "Công ty": "Company",
+  "Rương gần nhất": "Nearest chest"
  }
 }

@@ -2,7 +2,8 @@
 //
 // Cars keep to the right-hand lane of the street grid (city.grid), pick a way at each crossing, slow
 // down and stop for whatever is ahead (another car, a person, the CEO) and stop when bumped. People
-// walk the sidewalks around the blocks near the CEO. F at a car's driver door gets in: W/S to drive and
+// walk the sidewalks around the blocks near the CEO (and turn up out of sight, never in front of them); someone
+// drives each car in traffic. Cars are solid: nobody walks through one. F at a car's driver door gets in: W/S to drive and
 // brake, A/D to steer, Space for the handbrake, V switches the cockpit and the view from behind, F gets out.
 //
 // createStreet(host) → { update(dt), key(e), hint(), driving }
@@ -76,8 +77,8 @@ const SHAPE = (() => {
   const tail = mergeGeometries([at(new THREE.BoxGeometry(0.06, 0.12, 0.4), -2.27, 0.74, 0.62), at(new THREE.BoxGeometry(0.06, 0.12, 0.4), -2.27, 0.74, -0.62)]);
   const plate = mergeGeometries([at(new THREE.BoxGeometry(0.02, 0.12, 0.42), 2.32, 0.42, 0), at(new THREE.BoxGeometry(0.02, 0.12, 0.42), -2.32, 0.5, 0)]);
   // inside: two front seats, a back bench, the dashboard, the steering wheel (driver on the left, -z)
-  const seatOne = (x, z) => [at(new THREE.BoxGeometry(0.5, 0.12, 0.48), x, 0.72, z), at(new THREE.BoxGeometry(0.12, 0.62, 0.46), x - 0.27, 1.02, z, 0, 0, 0.18),
-    at(new THREE.BoxGeometry(0.1, 0.18, 0.26), x - 0.37, 1.4, z, 0, 0, 0.18)];
+  const seatOne = (x, z) => [at(new THREE.BoxGeometry(0.5, 0.1, 0.48), x, 0.68, z), at(new THREE.BoxGeometry(0.12, 0.58, 0.46), x - 0.27, 0.98, z, 0, 0, 0.18),
+    at(new THREE.BoxGeometry(0.1, 0.16, 0.26), x - 0.36, 1.32, z, 0, 0, 0.18)];
   const seat = mergeGeometries([...seatOne(-0.4, -0.38), ...seatOne(-0.4, 0.38), at(new THREE.BoxGeometry(0.5, 0.12, 1.4), -1.25, 0.72, 0), at(new THREE.BoxGeometry(0.12, 0.55, 1.4), -1.52, 1.0, 0, 0, 0, 0.15)]);
   const dash = mergeGeometries([
     at(new THREE.BoxGeometry(0.34, 0.2, 1.62), 0.72, 0.9, 0),                       // dashboard under the windscreen
@@ -99,7 +100,6 @@ function makeCar(color) {
   mesh(SHAPE.body, paint); mesh(SHAPE.cabin, paint); mesh(SHAPE.glass, MAT.glass, false); mesh(SHAPE.trim, MAT.trim);
   mesh(SHAPE.chrome, MAT.chrome, false); mesh(SHAPE.head, MAT.head, false); mesh(SHAPE.tail, MAT.tail, false); mesh(SHAPE.plate, MAT.plate, false);
   mesh(SHAPE.seat, MAT.seat, false); mesh(SHAPE.dash, MAT.dash, false); mesh(SHAPE.steer, MAT.trim, false);
-  // nobody visible at the wheel of the city's cars: a dark tint on the glass hides the cabin from outside
   const wheels = WHEELS.map(([x, z]) => {
     const w = new THREE.Group(); w.position.set(x, 0.36, z);
     const spin = new THREE.Group(); w.add(spin);
@@ -158,6 +158,82 @@ export function createStreet(host) {
   }
   for (let i = 0; i < CARS; i++) spawnCar();
 
+  // ---- a driver at the wheel of every car in traffic: a person from the model library, seated, facing ahead
+  // the root, so the seated hips (0.6 above it) land on the cushion; a touch smaller than on foot, to fit under the roof
+  const DRIVER_AT = new THREE.Vector3(-0.5, 0.06, -0.38), DRIVER_SCALE = 0.84;
+  function seatDriver(car) {
+    if (car.driver || !host.spawnPerson) return;
+    const c = host.spawnPerson(`driver${cars.indexOf(car)}-${Math.floor(rnd() * 1e4)}`);
+    c.seated = true;
+    car.group.add(c.root);
+    c.root.position.copy(DRIVER_AT); c.root.rotation.set(0, Math.PI / 2, 0); c.root.scale.setScalar(DRIVER_SCALE);
+    c.play('sit');
+    car.driver = c;
+  }
+  // the CEO takes a car from traffic: its driver gets out on the far side and walks off along the sidewalk
+  function driverOut(car) {
+    const c = car.driver;
+    if (!c) return;
+    car.driver = null;
+    const at = car.group.position.clone().add(new THREE.Vector3(-0.4, 0, 1.9).applyAxisAngle(UP, car.heading));
+    host.collide(at, 0.35);
+    scene.add(c.root);
+    c.root.scale.setScalar(1); c.seated = false;
+    c.placeAt(at, player.root.position);
+    c.play('sad');
+    pop(pick([t('Ơ, xe của tôi mà!'), t('Sếp cần thì sếp cứ lấy…'), t('Trời đất, cướp xe giữa ban ngày!')]), () => c.root.position, 'them');
+    if (people.length >= PEOPLE + 6) { setTimeout(() => c.fade(0, 600, () => host.removePerson?.(c)), 2500); return; }
+    setTimeout(() => { if (!c.disposed) joinSidewalk(addPerson(c)); }, 1800);
+  }
+
+  // ---- cars are solid: push a point (radius r) out of a car's box
+  const HALF_L = 2.3, HALF_W = 0.92, UP = new THREE.Vector3(0, 1, 0);
+  function outOfCar(p, car, r) {
+    const c = car.group.position, cs = Math.cos(car.heading), sn = Math.sin(car.heading);
+    const dx = p.x - c.x, dz = p.z - c.z;
+    if (dx * dx + dz * dz > 9) return false;
+    const lx = dx * cs - dz * sn, lz = dx * sn + dz * cs;                 // in the car's frame: x ahead, z to its right
+    const ox = lx - clamp(lx, -HALF_L, HALF_L), oz = lz - clamp(lz, -HALF_W, HALF_W), d = Math.hypot(ox, oz);
+    if (d >= r) return false;
+    let px, pz;
+    if (d > 1e-6) { px = ox / d * (r - d); pz = oz / d * (r - d); }
+    else {   // inside: out by the nearest side
+      const ex = HALF_L + r - Math.abs(lx), ez = HALF_W + r - Math.abs(lz);
+      if (ex < ez) { px = Math.sign(lx || 1) * ex; pz = 0; } else { px = 0; pz = Math.sign(lz || 1) * ez; }
+    }
+    p.x += px * cs + pz * sn; p.z += -px * sn + pz * cs;
+    return true;
+  }
+  function solidCars() {
+    const out = host.isOutdoors();
+    for (const car of cars) {
+      if (!drive && out) outOfCar(player.root.position, car, 0.35);
+      for (const p of people) outOfCar(p.char.root.position, car, 0.32);
+    }
+  }
+
+  // ---- in sight of the camera: in the view and not behind a building
+  const frustum = new THREE.Frustum(), viewProj = new THREE.Matrix4(), sphere = new THREE.Sphere();
+  const buildings = city.walls.filter((w) => w.kind === 'building');
+  const crosses = (a, b, w) => {   // the segment a→b (on the ground) through box w
+    let t0 = 0, t1 = 1;
+    for (const [p, d, lo, hi] of [[a.x, b.x - a.x, w.minX, w.maxX], [a.z, b.z - a.z, w.minZ, w.maxZ]]) {
+      if (Math.abs(d) < 1e-9) { if (p < lo || p > hi) return false; continue; }
+      let u = (lo - p) / d, v = (hi - p) / d;
+      if (u > v) [u, v] = [v, u];
+      t0 = Math.max(t0, u); t1 = Math.min(t1, v);
+      if (t0 > t1) return false;
+    }
+    return true;
+  };
+  function inSight(pt) {
+    camera.updateMatrixWorld();
+    viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    frustum.setFromProjectionMatrix(viewProj);
+    if (!frustum.intersectsSphere(sphere.set(pt.clone().setY(1), 1.5))) return false;
+    return !buildings.some((w) => crosses(camera.position, pt, w));
+  }
+
   // ---- the parked cars along the kerbs: the city's simple ones swapped for these, all in a few instanced
   // meshes; one is taken out (and a real car put in its place) when the CEO gets into it
   const parked = city.parked.map(([x, z, a], k) => ({ x, z, a, k, color: city.carColors[k % city.carColors.length], wall: city.parkedWalls[k], gone: false }));
@@ -215,13 +291,14 @@ export function createStreet(host) {
   const around = (i, j) => { const cx = G.cx + i * G.pitch, cz = G.cz + j * G.pitch, h = G.inner / 2 - 0.8;
     return [[cx - h, cz - h], [cx + h, cz - h], [cx + h, cz + h], [cx - h, cz + h]].map(([x, z]) => new THREE.Vector3(x, 0, z)); };
   function placePerson(p, far = true) {
-    // a block near the CEO, a point on its sidewalk loop not right in front of them
+    // a block near the CEO, a point on its sidewalk loop out of their sight (behind them, round a corner,
+    // behind a building), so nobody pops up in view
     const me = player.root.position;
-    for (let k = 0; k < 12; k++) {
+    for (let k = 0; k < 40; k++) {
       const i = clamp(Math.round((me.x - G.cx) / G.pitch) + Math.floor(rnd() * 3) - 1, -G.rings, G.rings);
       const j = clamp(Math.round((me.z - G.cz) / G.pitch) + Math.floor(rnd() * 3) - 1, -G.rings, G.rings);
       const loop = around(i, j), e = Math.floor(rnd() * 4), pt = loop[e].clone().lerp(loop[(e + 1) % 4], rnd());
-      if (far && pt.distanceTo(me) < 30) continue;
+      if (pt.distanceTo(me) < (far ? 30 : 8) || (k < 39 && inSight(pt))) continue;
       p.loop = loop; p.edge = e; p.cw = rnd() < 0.5;
       p.char.placeAt(pt);
       walkOn(p);
@@ -239,15 +316,30 @@ export function createStreet(host) {
     p.char.walkTo(p.loop[p.edge], () => walkOn(p));
   }
   const HELLO = [t('Chào anh/chị!'), t('Hôm nay trời đẹp ghê.'), t('Đường này đi đâu cũng gần.'), t('Đang vội, hẹn lúc khác nha!'), t('Xe buýt chưa tới hả trời…'), t('Công ty sếp to quá ha!')];
-  function addPerson() {
-    const p = { char: host.spawnPerson(PEOPLE_NAMES[people.length % PEOPLE_NAMES.length] + people.length), pauseT: 0 };
+  function addPerson(char = null) {
+    const p = { char: char || host.spawnPerson(PEOPLE_NAMES[people.length % PEOPLE_NAMES.length] + people.length), pauseT: 0 };
     // clicking them: they stop, turn to the CEO and say something
     host.usable?.(p.char.root, () => t('Chào <b>người đi đường</b>'), () => {
       p.char.target = null; p.char.faceTarget = player.root.position.clone(); p.pauseT = 2.5; p.char.play('wave');
       pop(pick(HELLO), () => p.char.root.position, 'them');
     });
     people.push(p);
-    placePerson(p, false);
+    if (!char) placePerson(p, false);
+    return p;
+  }
+  // someone already in the street (a driver who got out) onto the nearest sidewalk loop
+  function joinSidewalk(p) {
+    const me = p.char.root.position;
+    const i = clamp(Math.round((me.x - G.cx) / G.pitch), -G.rings, G.rings), j = clamp(Math.round((me.z - G.cz) / G.pitch), -G.rings, G.rings);
+    p.loop = around(i, j); p.cw = rnd() < 0.5;
+    let best = null, bd = Infinity;
+    for (let e = 0; e < 4; e++) {
+      const a = p.loop[e], b = p.loop[(e + 1) % 4], ab = b.clone().sub(a);
+      const q = a.clone().addScaledVector(ab, clamp(me.clone().sub(a).dot(ab) / ab.lengthSq(), 0, 1));
+      const d = q.distanceTo(me);
+      if (d < bd) { bd = d; best = q; p.edge = p.cw ? e : (e + 1) % 4; }
+    }
+    p.char.walkTo(best, () => walkOn(p));
   }
   let peopleOn = false;
 
@@ -290,6 +382,7 @@ export function createStreet(host) {
     sfx('door_car');
     host.track?.('car_driven', { parked: !!car.parkedCar });
     car.ai = false; drive = car; car.speed = 0;
+    driverOut(car);
     player.root.visible = false;
     player.yaw = car.heading + Math.PI / 2; player.pitch = 0.05;   // start looking ahead
     host.control(controller);
@@ -321,6 +414,7 @@ export function createStreet(host) {
       if (dd < bd) { bd = dd; best = c; }
     }
     Object.assign(car, { a: best.a, b: best.b, dir: best.dir, way: best.way, ai: true });
+    seatDriver(car);
   }
 
   const look = { yaw: 0, pitch: 0 };
@@ -380,10 +474,7 @@ export function createStreet(host) {
     }
     if (hit && Math.abs(car.speed) > 2) car.speed *= mine ? -0.25 : 0;
     // people step aside
-    for (const pp of people) {
-      const d = pp.char.root.position.clone().sub(p); d.y = 0;
-      if (d.length() < 1.6) pp.char.root.position.addScaledVector(d.normalize(), 1.6 - d.length());
-    }
+    for (const pp of people) outOfCar(pp.char.root.position, car, 0.45);
   }
 
   function updateCars(dt) {
@@ -427,6 +518,12 @@ export function createStreet(host) {
     }
     for (const car of cars) {
       car.group.rotation.y = car.heading;
+      // drivers only where they can be seen through the glass, and no shadows of their own (the roof covers them)
+      const dr = car.driver;
+      if (dr) {
+        dr.root.visible = car.group.position.distanceToSquared(camera.position) < 70 * 70;
+        if (!dr.shadowsOff && dr.body?.model) { dr.shadowsOff = true; dr.root.traverse((o) => { if (o.isMesh) o.castShadow = false; }); }
+      }
       for (const w of car.wheels) {
         w.spin.rotation.z -= car.speed * dt / 0.36;
         w.w.rotation.y = w.front ? (car === drive ? car.steer || 0 : 0) : 0;
@@ -500,7 +597,7 @@ export function createStreet(host) {
 
   function updatePeople(dt) {
     const out = host.isOutdoors() || !!drive;
-    if (out && !peopleOn) { peopleOn = true; while (people.length < PEOPLE) addPerson(); }
+    if (out && !peopleOn) { peopleOn = true; while (people.length < PEOPLE) addPerson(); for (const c of cars) if (c.ai) seatDriver(c); }
     for (const p of people) {
       p.char.root.visible = out;
       if (p.pauseT > 0 && (p.pauseT -= dt) <= 0) { p.char.faceTarget = null; walkOn(p); }
@@ -522,6 +619,7 @@ export function createStreet(host) {
       }
       updateCars(dt);
       updatePeople(dt);
+      solidCars();
     },
     key(e) {
       if (e.code === 'KeyF' && !e.repeat) {
