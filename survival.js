@@ -496,6 +496,7 @@ export function createSurvival(host, street, life) {
     const h = homeAt(), fade = document.createElement('div'); fade.className = 'sv-faint'; document.body.append(fade);
     sfx('drop');
     setTimeout(() => {
+      if (player.seat) player.standUp?.();   // moved while seated, the sitting pose would hang in the air where they land
       if (h) { player.root.position.set(h.x - 2.8, 0.2, h.z + 1.6); player.floorBase = 0; player.camReady = false; }
       st.v = 60; st.exhausted = false; bagState = bagState === 'lost' ? 'lost' : 'hand';
       fade.classList.add('out');
