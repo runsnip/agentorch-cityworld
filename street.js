@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { t } from '/i18n.js';
 
-const CARS = 22, PEOPLE = 16;
+const PEOPLE = 16;
 const CRUISE = 9.5, LANE = 4, CAR_R = 0.95, WHEELBASE = 2.6;
 const PEOPLE_NAMES = ['an', 'binh', 'chi', 'dung', 'giang', 'ha', 'khoa', 'linh', 'minh', 'nam', 'oanh', 'phuc', 'quan', 'son', 'thao', 'uyen', 'vy', 'xuan'];
 const COLORS = [0xd8d8d8, 0x1f2a36, 0x8a1f22, 0x2d4f7a, 0x6b6e72, 0xe8e2d0, 0x234d3a, 0xc9a227, 0x111111, 0x5b2a6e];
@@ -156,6 +156,7 @@ export function createStreet(host) {
     cars.push(car);
     return car;
   }
+  const CARS = Math.min(48, Math.round(22 * ((G.rings + 1) / 4) ** 2));   // as much traffic per street whatever the city's size
   for (let i = 0; i < CARS; i++) spawnCar();
 
   // ---- a driver at the wheel of every car in traffic: a person from the model library, seated, facing ahead
@@ -237,7 +238,7 @@ export function createStreet(host) {
   // ---- the parked cars along the kerbs: the city's simple ones swapped for these, all in a few instanced
   // meshes; one is taken out (and a real car put in its place) when the CEO gets into it
   const parked = city.parked.map(([x, z, a], k) => ({ x, z, a, k, color: city.carColors[k % city.carColors.length], wall: city.parkedWalls[k], gone: false }));
-  const parkedSets = [];
+  const parkedSets = new Map(), parkedSquares = [];   // square → its instanced meshes; [{ group, at, r }]
   if (parked.length) {
     for (const m of city.parkedMeshes) m.visible = false;
     const white = new THREE.Color(1, 1, 1);
@@ -246,25 +247,39 @@ export function createStreet(host) {
       [SHAPE.head, MAT.head], [SHAPE.tail, MAT.tail], [SHAPE.plate, MAT.plate], [SHAPE.seat, MAT.seat], [SHAPE.dash, MAT.dash], [SHAPE.steer, MAT.trim]];
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
     const poseOf = (c) => m4.compose(new THREE.Vector3(c.x, 0, c.z), q.setFromAxisAngle(up, c.a), one).clone();
-    for (const [geo, mat, painted] of parts) {
-      const im = new THREE.InstancedMesh(geo, mat, parked.length);
-      parked.forEach((c, i) => { im.setMatrixAt(i, poseOf(c)); if (painted) im.setColorAt(i, new THREE.Color(c.color)); });
-      im.castShadow = mat !== MAT.glass; im.receiveShadow = true;
-      group.add(im); parkedSets.push({ im, wheel: null });
+    // in squares of two blocks, each its own meshes, so the squares out of view or past the haze aren't drawn
+    const squares = new Map();
+    for (const c of parked) {
+      const key = `${Math.floor(c.x / (2 * G.pitch))},${Math.floor(c.z / (2 * G.pitch))}`;
+      if (!squares.has(key)) squares.set(key, []);
+      const list = squares.get(key);
+      c.slot = list.length; c.sq = key; list.push(c);
     }
-    for (const [geo, mat] of [[SHAPE.tyre, MAT.tyre], [SHAPE.rim, MAT.chrome]]) {
-      const im = new THREE.InstancedMesh(geo, mat, parked.length * 4);
-      parked.forEach((c, i) => WHEELS.forEach(([x, z], w) => im.setMatrixAt(i * 4 + w, poseOf(c).multiply(new THREE.Matrix4().makeTranslation(x, 0.36, z)))));
-      im.castShadow = true;
-      group.add(im); parkedSets.push({ im, wheel: true });
+    for (const [key, list] of squares) {
+      const sq = new THREE.Group(), sets = [];
+      group.add(sq);
+      for (const [geo, mat, painted] of parts) {
+        const im = new THREE.InstancedMesh(geo, mat, list.length);
+        list.forEach((c, i) => { im.setMatrixAt(i, poseOf(c)); if (painted) im.setColorAt(i, new THREE.Color(c.color)); });
+        im.castShadow = mat !== MAT.glass; im.receiveShadow = true; im.computeBoundingSphere();
+        sq.add(im); sets.push({ im, wheel: null });
+      }
+      for (const [geo, mat] of [[SHAPE.tyre, MAT.tyre], [SHAPE.rim, MAT.chrome]]) {
+        const im = new THREE.InstancedMesh(geo, mat, list.length * 4);
+        list.forEach((c, i) => WHEELS.forEach(([x, z], w) => im.setMatrixAt(i * 4 + w, poseOf(c).multiply(new THREE.Matrix4().makeTranslation(x, 0.36, z)))));
+        im.castShadow = true; im.computeBoundingSphere();
+        sq.add(im); sets.push({ im, wheel: true });
+      }
+      const b = sets[0].im.boundingSphere;
+      parkedSets.set(key, sets); parkedSquares.push({ group: sq, at: b.center, r: b.radius + 3 });
     }
   }
   const zero = new THREE.Matrix4().makeScale(0, 0, 0);
   // take parked car i off the kerb: a real car, its own collision box gone
   function unpark(c) {
     c.gone = true;
-    for (const { im, wheel } of parkedSets) {
-      if (wheel) for (let w = 0; w < 4; w++) im.setMatrixAt(c.k * 4 + w, zero); else im.setMatrixAt(c.k, zero);
+    for (const { im, wheel } of parkedSets.get(c.sq)) {
+      if (wheel) for (let w = 0; w < 4; w++) im.setMatrixAt(c.slot * 4 + w, zero); else im.setMatrixAt(c.slot, zero);
       im.instanceMatrix.needsUpdate = true;
     }
     Object.assign(c.wall, { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity });
@@ -516,8 +531,12 @@ export function createStreet(host) {
         car.stopFor = 3; if (car.speed > 1 && honk <= 0) { sfx('horn'); honk = 1.5; } car.speed = 0;
       }
     }
+    // past the haze: not drawn
+    const far2 = ((scene.fog?.far ?? 400) + 10) ** 2;
+    for (const sq of parkedSquares) sq.group.visible = Math.max(0, Math.hypot(sq.at.x - camera.position.x, sq.at.z - camera.position.z) - sq.r) ** 2 < far2;
     for (const car of cars) {
       car.group.rotation.y = car.heading;
+      car.group.visible = car === drive || car.group.position.distanceToSquared(camera.position) < far2;
       // drivers only where they can be seen through the glass, and no shadows of their own (the roof covers them)
       const dr = car.driver;
       if (dr) {
