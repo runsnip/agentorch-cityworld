@@ -324,6 +324,12 @@ function makeBowl() {
   return g;
 }
 
+// who runs a stall, after the dish on its sign: an aunt, an uncle, a first name, a corner
+const STALL_OWNERS = ['Cô Ba', 'Bà Tư', 'Chú Năm', 'Dì Bảy', 'Ông Sáu', 'Cô Út', 'Anh Hai', 'Chị Mai', 'Hòa', 'Lan', 'Thủy', 'Hạnh',
+  'Minh', 'Phúc', 'Gió', 'Góc Phố', 'Đầu Hẻm', 'Cây Me', 'Nhà Gỗ', 'Sáng', 'Bến Đò', 'Ngõ Nhỏ', 'Thu', 'Kim'];
+// the sign's board and lettering, one look per stall
+const SIGN_LOOKS = [{ board: 0xf6d34a, ink: '#c4161c' }, { board: 0xf4efe4, ink: '#1f5aa8' }, { board: 0x1f6b3a, ink: '#fff4d6' }, { board: 0xb5251d, ink: '#ffe08a' }];
+
 export function createStreetLife(host, street) {
   const { scene, city, player, camera } = host;
   const G = city.grid, CELL = 2 * G.pitch, inner = G.inner;
@@ -421,7 +427,7 @@ export function createStreetLife(host, street) {
           add(UMBRELLA, MAT.vc2, at(um.x, 0, um.z, umr));
           add(UMBRELLA_RIBS, MAT.vc, at(um.x, 0, um.z, umr), null, { detail: true, shadow: false });
           const pot = L(-0.75 + 0.42, 0.75);   // the pot sits at the cart's +x end
-          stalls.push({ seats, dish: pickOf(r, DISHES), sign: L(-0.75, 1.07), ry, pot, at: L(-len / 2, 1) });
+          stalls.push({ seats, dish: pickOf(r, DISHES), sign: L(-0.75, 0.98), ry, pot, at: L(-len / 2, 1), front: L(-len / 2, 2.7) });
           boxAround([L(0.05, 0.05), L(-len + 0.05, 1.95)], 'stall');
           u += len + 3 + r() * 10;
         } else {   // a vendor's bicycle, piled high
@@ -433,6 +439,21 @@ export function createStreetLife(host, street) {
           u += 2.2 + 3 + r() * 10;
         }
       }
+    });
+  }
+  // ---- each food stall's own name, on its sign: the dish and whoever runs it ("Phở Cô Ba", "Cà phê Gió"),
+  // the same every time (from the stall's place in the city, not the layout's random stream), no two alike
+  {
+    const taken = new Set();
+    stalls.forEach((st, si) => {
+      if (!st.dish) return;
+      const rn = seeded(9001 + si * 7919 + st.dish.length * 131);
+      for (let k = 0; k < 40 && !st.name; k++) {
+        const n = `${st.dish} ${pickOf(rn, STALL_OWNERS)}`;
+        if (!taken.has(n)) st.name = n;
+      }
+      st.name ||= `${st.dish} ${si}`;
+      taken.add(st.name);
     });
   }
   // xe ôm bikes: parked along the kerb side near the corner, the driver sitting on it
@@ -490,34 +511,46 @@ export function createStreetLife(host, street) {
   // they stop you like any wall (an older app without host.addWalls: from its next layout)
   if (host.addWalls) host.addWalls(walls); else city.walls.push(...walls);
 
-  // ---- the dish on each stall: raised letters on a board (relief.js from the app, when it has it)
-  const signs = new THREE.Group(); root.add(signs);
-  import('/relief.js').then(({ relief }) => {
-    const made = new Map();
-    const make = (dish) => {
-      if (made.has(dish)) return made.get(dish);
-      const g = relief((ctx, w, h) => {
-        ctx.font = `900 ${h * 0.62}px "Helvetica Neue", Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#c4161c'; ctx.fillText(dish, w / 2, h / 2 + 4);
-      }, { w: 512, h: 128, width: 1.05, depth: 0.025, roughness: 0.4 });
-      const mesh = g.children[0];
-      made.set(dish, mesh);
-      return mesh;
-    };
-    const board = new THREE.BoxGeometry(1.2, 0.3, 0.03), boardMat = new THREE.MeshStandardMaterial({ color: 0xf6d34a, roughness: 0.5 });
-    for (const s of stalls) {
-      if (!s.dish) continue;
-      const proto = make(s.dish);
-      if (!proto) continue;
-      const g = new THREE.Group();
-      g.position.set(s.sign.x, SLAB + 1.62, s.sign.z); g.rotation.y = s.ry;
-      const b = new THREE.Mesh(board, boardMat); b.castShadow = true; g.add(b);
-      const l = new THREE.Mesh(proto.geometry, proto.material); l.position.z = 0.015; g.add(l);
-      const back = new THREE.Mesh(proto.geometry, proto.material); back.position.z = -0.015; back.rotation.y = Math.PI; g.add(back);   // readable from both sides
-      for (const x of [-0.55, 0.55]) { const post = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.3, 6), boardMat); post.position.set(x, -0.25, 0); g.add(post); }
-      squareOf(s.sign.x, s.sign.z).detail.add(g);
+  // ---- each stall's name on its sign: raised letters on a board (relief.js from the app, when it has it). Every
+  // sign says something different, so they're made as the CEO comes near (a couple at a time), not all at once
+  let relief = null, signT = 0;
+  const signQueue = stalls.filter((st) => st.name);
+  import('/relief.js').then((m) => { relief = m.relief; }).catch(() => { /* an older app: no signs */ });
+  const SIGN_W = 1.5, SIGN_H = 0.36, signBoard = new THREE.BoxGeometry(SIGN_W, SIGN_H, 0.03), signPost = new THREE.CylinderGeometry(0.012, 0.012, 0.14, 6);   // the posts stand on the glass case's top
+  const signMats = new Map();
+  const signMat = (c) => signMats.get(c) || signMats.set(c, new THREE.MeshStandardMaterial({ color: c, roughness: 0.5 })).get(c);
+  function makeSign(st, look) {
+    const g = relief((ctx, w, h) => {
+      let size = h * 0.66;
+      ctx.font = `900 ${size}px "Helvetica Neue", Arial, sans-serif`;
+      const tw = ctx.measureText(st.name).width;
+      if (tw > w * 0.94) { size *= w * 0.94 / tw; ctx.font = `900 ${size}px "Helvetica Neue", Arial, sans-serif`; }   // a long name: smaller letters
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = look.ink; ctx.fillText(st.name, w / 2, h / 2 + 4);
+    }, { w: 800, h: 160, width: SIGN_W - 0.08, depth: 0.025, bevel: 0.25, roughness: 0.4 });
+    return g.children[0];
+  }
+  function buildSigns(dt) {
+    if (!relief || !signQueue.length || (signT -= dt) > 0) return;
+    signT = 0.25;
+    const cam = camera.position;
+    signQueue.sort((a, b) => Math.hypot(a.sign.x - cam.x, a.sign.z - cam.z) - Math.hypot(b.sign.x - cam.x, b.sign.z - cam.z));
+    for (let k = 0; k < 2 && signQueue.length; k++) {
+      const st = signQueue[0];
+      if (Math.hypot(st.sign.x - cam.x, st.sign.z - cam.z) > 140) break;
+      signQueue.shift();
+      const look = SIGN_LOOKS[(st.name.length * 7 + st.name.charCodeAt(0)) % SIGN_LOOKS.length];
+      const letters = makeSign(st, look);
+      if (!letters) continue;
+      const g = new THREE.Group(); g.name = `sign:${st.name}`;
+      g.position.set(st.sign.x, SLAB + 1.64, st.sign.z); g.rotation.y = st.ry;
+      const b = new THREE.Mesh(signBoard, signMat(look.board)); b.castShadow = true; g.add(b);
+      const l = new THREE.Mesh(letters.geometry, letters.material); l.position.z = 0.015; g.add(l);
+      const back = new THREE.Mesh(letters.geometry, letters.material); back.position.z = -0.015; back.rotation.y = Math.PI; g.add(back);   // readable from both sides
+      for (const x of [-0.6, 0.6]) { const post = new THREE.Mesh(signPost, signMat(0x9aa0a6)); post.position.set(x, -SIGN_H / 2 - 0.06, 0); g.add(post); }
+      squareOf(st.sign.x, st.sign.z).detail.add(g);
     }
-  }).catch(() => { /* an older app: no signs */ });
+  }
 
   // ---- steam over the pots near the CEO: little puffs rising, swelling, then gone
   const PUFFS = 7, NEAR_POTS = 8;
@@ -574,7 +607,7 @@ export function createStreetLife(host, street) {
       let bowl = null, timer = 0, order = null;
       mine.push({
         pos: new THREE.Vector3(sp.x, SLAB + 0.41 - 0.505, sp.z), approach: new THREE.Vector3(sp.x - fx * 0.95, 0, sp.z - fz * 0.95), facing: sp.face,
-        label: t('Ngồi ăn <b>{dish}</b>', { dish: st.dish }),
+        label: t('Ngồi ăn <b>{dish}</b> ở quán {name}', { dish: st.dish, name: st.name }),
         onSit() {
           street.pop(street.pick([t('Cho một phần {dish} nha!', { dish: st.dish }), t('Một phần {dish}, không hành nha.', { dish: st.dish }), t('Chủ quán ơi, {dish}!', { dish: st.dish })]), () => host.player.root.position);
           // pay first: the app charges the dish's price from the purse (cityBuy); the bowl comes only once it's paid
@@ -901,6 +934,8 @@ export function createStreetLife(host, street) {
   return {
     // for the city's dangers (survival.js): where people crowd — the stalls and the market
     get crowds() { return [...stalls.filter((s) => s.seats.length).map((s) => s.at), ...(market ? [new THREE.Vector3(market.park.x, 0, market.park.z)] : [])]; },
+    // the food stalls, by name, for today's missions (quests.js): where to stand to be at each one
+    get shops() { return stalls.filter((s) => s.name).map((s) => ({ name: s.name, dish: s.dish, x: s.front.x, z: s.front.z })); },
     get marketArea() { return market ? { x: market.park.x, z: market.park.z, half: market.park.half } : null; },
     update(dt) {
       // steam off the CEO's bowl: puffs rise, swell and fade, one after another
@@ -927,6 +962,7 @@ export function createStreetLife(host, street) {
         if (out && v.c.root.position.distanceToSquared(cam) < 40 * 40) follow(v.c, v.hat, 0.12); else v.hat.visible = false;
       }
       updateShoppers(dt, out);
+      if (out) buildSigns(dt);
       for (const u of pool.used.values()) if (u.gear && u.c.root.position.distanceToSquared(cam) < 40 * 40) follow(u.c, u.gear, u.s.helmet ? 0.1 : 0.12);
       solid(dt);
       // steam over the nearest pots

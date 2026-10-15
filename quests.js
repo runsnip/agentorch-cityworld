@@ -2,9 +2,10 @@
 // (written each day in the project's repository; see agentorch/inventory.py). Rewards go to the
 // company's inventory (Tab › Kho đồ) and are rolled by the app, not here: the page only learns a
 // mission's rarity until it is done. This module places today's chests and the marked place of a
-// "visit" mission, notices what the CEO does and reports it, and shows what came out.
+// "visit" mission (and the stall of an "eat" one), notices what the CEO does and reports it, and shows what
+// came out. Meals and coins spent ("eat", "spend") are counted by the app itself when a stall is paid.
 //
-// createCityQuests({ scene, city, call, player, isOutdoors }) → {
+// createCityQuests({ scene, city, call, player, isOutdoors, shops }) → {
 //   onState(msg), onReward(msg), near (chest within reach, or null), open(), update(dt), report(r), hint (text or '') }
 
 import * as THREE from 'three';
@@ -140,11 +141,12 @@ function markMesh() {
   return g;
 }
 
-export function createCityQuests({ scene, city, call, player, isOutdoors, track = () => {}, audio = null, usable = null }) {
+export function createCityQuests({ scene, city, call, player, isOutdoors, track = () => {}, audio = null, usable = null, shops = () => [] }) {
   const group = new THREE.Group();
   scene.add(group);
   const chests = new Map();   // index → mesh
-  const marks = new Map();    // visit mission id → mesh
+  const marks = new Map();    // visit (and eat) mission id → mesh
+  const eatAt = new Map();    // eat mission id → the stall picked for it today: { name, dish, x, z }
   let state = null, near = null, sinceReport = 0, inFlight = 0, shownWalk = 0, last = null, parksSeen = new Set(), time = 0, clockShown = '';
 
   // ---- the tracker, top right, while outdoors: today's missions, the reward's rarity only, time left
@@ -168,7 +170,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       ${state.quests.map((q) => `<div class="ct-task r-${q.rarity}${q.done ? ' done' : ''}${detailId === q.id ? ' on' : ''}" data-q="${esc(q.id)}">
         <div class="ct-top"><span>${esc(q.name)}</span>${ready(q) ? `<button class="ct-claim" data-claim="${esc(q.id)}" title="${t('Mở rương nhận thưởng')}"></button>` : `<em class="ct-gift">${q.claimed ? '✓' : RARITY_NAME[q.rarity]}</em>`}</div>
         <div class="ct-bar"><i style="width:${Math.min(100, have(q) / q.target * 100)}%"></i></div>
-        <small>${q.claimed ? t('Đã nhận') : claiming.has(q.id) ? t('Đang mở rương…') : q.done ? t('Xong! Bấm rương để nhận thưởng') : q.goal === 'walk' ? t('{n} / {target} m', { n: have(q), target: q.target }) : `${q.progress}/${q.target}`}</small></div>`).join('')}
+        <small>${q.claimed ? t('Đã nhận') : claiming.has(q.id) ? t('Đang mở rương…') : q.done ? t('Xong! Bấm rương để nhận thưởng') : count(q, have(q))}</small></div>`).join('')}
       <div class="ct-row"><span class="ct-chest"></span>${t('Rương còn lại trên phố')}<em>${chestsLeft}/${state.count}</em></div>
       ${state.pending ? `<div class="ct-pending">${t('{n} phần thưởng đang chờ xác nhận', { n: state.pending })}</div>` : ''}`;
     tracker.querySelectorAll('[data-q]').forEach((el) => { el.onclick = () => showDetail(el.dataset.q); });
@@ -216,6 +218,19 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
     lift: t('Đi thang máy giữa các tầng (E trong thang máy).'),
     visit: t('Đi tới cột sáng xanh trên phố.'),
   };
+  // "eat": the dish at a named stall; "spend": coins
+  const eatHow = (q) => {
+    const sh = eatAt.get(q.id);
+    return (sh ? t('Ăn {dish} ở quán {name}.', { dish: q.dish, name: sh.name }) + ' ' : '')
+      + t('Tới quán có cột sáng xanh (xem bản đồ nhỏ), ngồi xuống ghế đẩu (F) và gọi món: trả coin xong là tính. Quán nào bán {dish} cũng được.', { dish: q.dish });
+  };
+  HOW.spend = t('Ăn uống ở các quán vỉa hè (ngồi xuống ghế đẩu, F, rồi trả coin). Mỗi coin trả cho quán đều tính.');
+  const count = (q, n) => {
+    if (q.goal === 'walk') return t('{n} / {target} m', { n, target: q.target });
+    if (q.goal === 'spend') return t('{n} / {target} coin', { n, target: q.target });
+    if (q.goal === 'eat' && eatAt.has(q.id)) return `${t('Quán {name}', { name: eatAt.get(q.id).name })} · ${n}/${q.target}`;
+    return `${n}/${q.target}`;
+  };
   const RAR = () => ({ common: t('Thường'), rare: t('Hiếm'), epic: t('Sử thi'), legendary: t('Huyền thoại') });
   function showDetail(id, refresh = false) {
     const q = state?.quests.find((x) => x.id === id);
@@ -223,7 +238,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
     detailId = id;
     const have = q.goal === 'walk' && !q.done ? Math.min(q.target, q.progress + Math.floor(inFlight + sinceReport)) : q.progress;
     let where = '';
-    if (q.goal === 'visit' && !q.done && marks.has(q.id)) {
+    if ((q.goal === 'visit' || q.goal === 'eat') && !q.done && marks.has(q.id)) {
       const m = marks.get(q.id).position, p = player.root.position, d = Math.round(Math.hypot(m.x - p.x, m.z - p.z));
       const ang = Math.atan2(m.x - p.x, m.z - p.z), dirs = [t('phía nam'), t('phía đông nam'), t('phía đông'), t('phía đông bắc'), t('phía bắc'), t('phía tây bắc'), t('phía tây'), t('phía tây nam')];
       where = `<div class="qd-where">${t('Cách bạn khoảng {m} m, về {dir}.', { m: d, dir: dirs[(Math.round(ang / (Math.PI / 4)) + 8) % 8] })}</div>`;
@@ -233,10 +248,10 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       <small class="qd-kind">${t('Nhiệm vụ hôm nay')}</small>
       <h3>${esc(q.name)}</h3>
       ${q.story ? `<p class="qd-story">“${esc(q.story)}”</p>` : ''}
-      <div class="qd-label">${t('Cách làm')}</div><p>${HOW[q.goal] || ''}</p>${where}
+      <div class="qd-label">${t('Cách làm')}</div><p>${q.goal === 'eat' ? esc(eatHow(q)) : HOW[q.goal] || ''}</p>${where}
       <div class="qd-label">${t('Tiến độ')}</div>
       <div class="qd-bar"><i style="width:${Math.min(100, have / q.target * 100)}%"></i></div>
-      <div class="qd-row"><span>${q.goal === 'walk' ? `${have} / ${q.target} m` : `${have} / ${q.target}`}</span>
+      <div class="qd-row"><span>${q.goal === 'walk' ? `${have} / ${q.target} m` : q.goal === 'spend' ? t('{n} / {target} coin', { n: have, target: q.target }) : `${have} / ${q.target}`}</span>
         <em>${q.claimed ? t('Đã nhận thưởng') : claiming.has(q.id) ? t('Đang mở rương…') : q.done ? t('Bấm rương để nhận') : t('Còn {time}', { time: left() })}</em></div>
       <div class="qd-label">${t('Phần thưởng')}</div>
       <div class="qd-reward"><span class="qd-rar">${RAR()[q.rarity] || q.rarity}</span>${t('Một món ngẫu nhiên từ bậc này trở lên, tung lúc hoàn thành. Hết ngày chưa xong là mất.')}</div>`;
@@ -309,6 +324,19 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       const m = markMesh(); m.position.set(x, 0, z); m.userData.id = q.id;
       group.add(m); marks.set(q.id, m);
     }
+    // an "eat" mission: the nearest stall serving its dish (picked once, then kept for the day), marked the same way
+    const all = shops(), p = player.root.position;
+    for (const q of state.quests) {
+      if (q.goal !== 'eat') continue;
+      if (!eatAt.has(q.id)) {
+        const best = all.filter((sh) => sh.dish === q.dish).sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
+        if (best) eatAt.set(q.id, best);
+      }
+      const sh = eatAt.get(q.id);
+      if (!sh || q.done) continue;
+      const m = markMesh(); m.position.set(sh.x, 0, sh.z); m.userData.id = q.id; m.userData.eat = true;
+      group.add(m); marks.set(q.id, m);
+    }
   }
 
   function report(r) { call('cityProgress', JSON.stringify(r)); }
@@ -320,7 +348,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       inFlight = 0;   // the app's count now includes what was reported
       const fresh = !state || state.day !== msg.day || state.seed !== msg.seed;
       state = msg;
-      if (fresh) { placeChests(); parksSeen = new Set(); claiming.clear(); claimIcons.clear(); }
+      if (fresh) { placeChests(); parksSeen = new Set(); claiming.clear(); claimIcons.clear(); eatAt.clear(); }
       for (const q of msg.quests) if (q.claimed) { claiming.delete(q.id); claimIcons.delete(q.id); }
       else for (const i of msg.opened) { const m = chests.get(i); if (m) { group.remove(m); chests.delete(i); } }
       placeMarks();
@@ -364,7 +392,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       for (const [id, m] of marks) {
         m.userData.beamMat.uniforms.uTime.value = time;
         m.userData.ring.scale.setScalar(1 + 0.12 * Math.sin(time * 3));
-        if (out && Math.hypot(m.position.x - p.x, m.position.z - p.z) < 1.6) { group.remove(m); marks.delete(id); report({ visit: id }); }
+        if (!m.userData.eat && out && Math.hypot(m.position.x - p.x, m.position.z - p.z) < 1.6) { group.remove(m); marks.delete(id); report({ visit: id }); }   // an eat mark stays until the meal is paid
       }
       // chests: bob the beam, swing the lid open once asked, find the nearest within reach
       near = null;

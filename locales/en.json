@@ -164,7 +164,6 @@
   "Xe ôm không? Đi đâu cũng chở!": "Bike taxi? Anywhere you like!",
   "Chợ": "Market",
   "Nhà": "Home",
-  "Ngồi ăn <b>{dish}</b>": "Sit down for <b>{dish}</b>",
   "Một phần {dish}, không hành nha.": "One {dish}, no onions please.",
   "Chủ quán ơi, {dish}!": "Excuse me — {dish}, please!",
   "Có liền nè!": "Coming right up!",
@@ -201,8 +200,14 @@
   "Trả lại đây!": "Give it back!",
   "Trả tiền đây!": "Give me my money back!",
   "Hình như có ai đứng sát sau lưng…": "Someone's standing right behind me…",
-  "Ai đứng sát quá vậy?": "Who's crowding me?"
- },
+  "Ai đứng sát quá vậy?": "Who's crowding me?",
+  "Ngồi ăn <b>{dish}</b> ở quán {name}": "Sit down for <b>{dish}</b> at {name}",
+  "Ăn {dish} ở quán {name}.": "Have {dish} at {name}.",
+  "Tới quán có cột sáng xanh (xem bản đồ nhỏ), ngồi xuống ghế đẩu (F) và gọi món: trả coin xong là tính. Quán nào bán {dish} cũng được.": "Go to the stall with the blue beam (see the minimap), sit on a stool (F) and order: it counts once you've paid. Any stall serving {dish} will do.",
+  "Ăn uống ở các quán vỉa hè (ngồi xuống ghế đẩu, F, rồi trả coin). Mỗi coin trả cho quán đều tính.": "Eat and drink at the street stalls (sit on a stool, F, then pay). Every coin paid to a stall counts.",
+  "{n} / {target} coin": "{n} / {target} coins",
+  "Quán {name}": "{name}",
   "Trả {price} coin": "Paid {price} coins",
   "Thiếu coin rồi, món này {price} coin.": "Not enough coins — this one is {price} coins."
+ }
 }
