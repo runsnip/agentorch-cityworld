@@ -210,6 +210,8 @@ export function createStreet(host) {
     for (const car of cars) {
       if (!drive && out) outOfCar(player.root.position, car, 0.35);
       for (const p of people) outOfCar(p.char.root.position, car, 0.32);
+      const aide = host.companion?.();
+      if (aide && out) outOfCar(aide.position, car, 0.32);
     }
   }
 
@@ -497,6 +499,8 @@ export function createStreet(host) {
     for (const c of cars) others.push({ ref: c, pos: c.group.position, r: 1.2 });
     if (!drive) others.push({ ref: null, pos: player.root.position, r: 0.4 });
     for (const p of people) others.push({ ref: null, pos: p.char.root.position, r: 0.4 });
+    const aide = host.companion?.();   // the assistant on foot (an older app doesn't say)
+    if (aide?.visible && !drive) others.push({ ref: null, pos: aide.position, r: 0.4 });
     for (const car of cars) {
       if (!car.ai) {
         if (car !== drive && !car.parkedCar && (car.backT -= dt) <= 0 && player.root.position.distanceTo(car.group.position) > 8) rejoin(car);
