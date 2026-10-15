@@ -657,6 +657,8 @@ export function createStreet(host) {
     get cars() { return cars; },
     pop, pick,
     addRoadUsers(fn) { roadUsers.push(fn); },
+    // push a point of radius r out of every car (true if it was inside one): bikes use it, nothing goes through a car
+    outOfCars(p, r) { let hit = false; for (const car of cars) if (outOfCar(p, car, r)) hit = true; return hit; },
     update(dt) {
       honk -= dt;
       updatePops(dt);

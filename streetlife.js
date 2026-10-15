@@ -722,7 +722,10 @@ export function createStreetLife(host, street) {
   }
   const blockersFor = (b) => {
     const list = [];
-    for (const c of street?.cars || []) list.push({ pos: c.group.position, w: 1.0, l: 2.3 });
+    for (const c of street?.cars || []) {   // a car's footprint as the bike sees it: across a junction it's long sideways
+      const d = (c.heading ?? 0) - b.heading, sn = Math.abs(Math.sin(d)), cs = Math.abs(Math.cos(d));
+      list.push({ pos: c.group.position, w: 2.3 * sn + 0.92 * cs + 0.1, l: 2.3 * cs + 0.92 * sn + 0.2 });
+    }
     for (const o of bikes) if (o !== b) list.push({ pos: o.group.position, w: 0.45, l: 1.0 });
     if (!street?.driving) list.push({ pos: player.root.position, w: 0.45, l: 0.4, me: true });
     const aide = host.companion?.();
@@ -768,6 +771,16 @@ export function createStreetLife(host, street) {
       if (b.stopFor > 0) { b.stopFor -= dt; goal = 0; }
       b.speed += clamp(goal - b.speed, -12 * dt, 4 * dt);
       p.x += Math.cos(b.heading) * b.speed * dt; p.z -= Math.sin(b.heading) * b.speed * dt;
+      // never through a car: the bike's front and back wheels are pushed out of any car box, and it stops there
+      if (street?.outOfCars) {
+        const hx = Math.cos(b.heading) * 0.55, hz = -Math.sin(b.heading) * 0.55, f = new THREE.Vector3(p.x + hx, 0, p.z + hz), r0 = new THREE.Vector3(p.x - hx, 0, p.z - hz);
+        const f0 = f.clone(), b0 = r0.clone();
+        if (street.outOfCars(f, 0.35) | street.outOfCars(r0, 0.35)) {   // both wheels checked; the bigger push moves the bike
+          const df = f.sub(f0), db = r0.sub(b0), d = df.lengthSq() > db.lengthSq() ? df : db;
+          p.x += d.x; p.z += d.z;
+          b.speed = 0; b.stopFor = Math.max(b.stopFor || 0, 0.8);
+        }
+      }
       b.group.rotation.set(-clamp(wrap(want - b.heading), -0.5, 0.5) * 0.35 * Math.min(1, b.speed / 6), b.heading, 0);   // leaning into the turn
       // a honk when held up by someone on foot, or now and then in the crush
       if ((b.honkT -= dt) <= 0 && free < 7 && b.speed < 4 && honkGlobal <= 0 && p.distanceTo(me) < 30) { host.audio?.sfx('horn'); b.honkT = 4 + Math.random() * 4; honkGlobal = 1.2; }
@@ -882,7 +895,7 @@ export function createStreetLife(host, street) {
     squareOf(market.gate.x, market.gate.z).group.add(gate);
   }).catch(() => {});
 
-  root.userData.debug = { stalls, xeOmSpots, market, bikes, vendors, pool, walls };   // for tests: where things are
+  root.userData.debug = { stalls, xeOmSpots, market, bikes, vendors, pool, walls, street };   // for tests: where things are
   // ---- the frame: squares past the haze hidden, small details only near; people and traffic
   let t0 = 0;
   return {
