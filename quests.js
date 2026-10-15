@@ -15,26 +15,37 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const seeded = (seed) => () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
 const REACH = 2.2;
 
-// A column of light rising from the ground: bright at the foot, fading out as it climbs, faint bands
-// drifting up it. Shared shapes; each chest has its own material (its own time and colour).
-// Tall enough to stand over the trees and low roofs, so a chest can be spotted from blocks away.
+// A column of light rising from the ground: a thin bright core inside a wide soft halo, both fading out at
+// their edges (the more side-on the surface, the fainter) so it reads as light with depth, not a painted
+// tube; faint bands drift up it. Tall enough to stand over the trees and low roofs, so a chest is spotted
+// from blocks away; up close it fades almost away so it never walls off the view.
 const BEAM_H = 38;
-const BEAM_GEO = new THREE.CylinderGeometry(0.75, 0.95, BEAM_H, 32, 1, true).translate(0, BEAM_H / 2, 0);
-function beamMaterial(color) {
-  return new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(color) } },
-    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: `uniform float uTime; uniform vec3 uColor; varying vec2 vUv;
+const BEAM_GEO = new THREE.CylinderGeometry(1.1, 1.3, BEAM_H, 32, 1, true).translate(0, BEAM_H / 2, 0);
+const CORE_GEO = new THREE.CylinderGeometry(0.16, 0.22, BEAM_H, 16, 1, true).translate(0, BEAM_H / 2, 0);
+// both layers share one set of uniforms (time, colour), each with its own strength
+function beamMaterials(color) {
+  const shared = { uTime: { value: 0 }, uColor: { value: new THREE.Color(color) } };
+  const make = (strength) => new THREE.ShaderMaterial({
+    uniforms: { ...shared, uK: { value: strength } },
+    vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vView; varying vec3 vWorld;
       void main() {
-        float up = vUv.y;                                            // 0 at the ground, 1 at the top
-        float fade = mix(1.0, 0.25, up) * smoothstep(1.0, 0.85, up);  // still strong high up, soft at the very top
-        float bands = 0.65 + 0.35 * sin((up * 40.0 - uTime * 2.2) * 6.2832);
-        float edge = 0.7 + 0.3 * sin(vUv.x * 6.2832 * 3.0 + uTime * 0.7);
-        // normal blending, not additive: an additive glow vanishes against a daytime sky and white walls
-        gl_FragColor = vec4(min(uColor * (1.15 + 0.35 * bands), vec3(1.0)), fade * (0.6 + 0.2 * bands) * edge);
+        vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vView = -mv.xyz; vN = normalize(normalMatrix * normal); vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `uniform float uTime; uniform vec3 uColor; uniform float uK; varying vec2 vUv; varying vec3 vN; varying vec3 vView; varying vec3 vWorld;
+      void main() {
+        float up = vUv.y;                                               // 0 at the ground, 1 at the top
+        float rise = mix(1.0, 0.35, up) * smoothstep(1.0, 0.8, up);      // strong low down, soft at the very top
+        float facing = abs(dot(normalize(vN), normalize(vView)));        // 1 facing you, 0 side-on at the edges
+        float soft = pow(facing, 2.2);
+        float bands = 0.7 + 0.3 * sin((up * 40.0 - uTime * 2.2) * 6.2832);
+        float near = 0.12 + 0.88 * smoothstep(3.0, 28.0, distance(vWorld, cameraPosition));   // close by: almost gone
+        gl_FragColor = vec4(min(uColor * (1.2 + 0.4 * bands), vec3(1.0)), rise * soft * bands * near * uK);
       }`,
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
   });
+  return { halo: make(0.38), core: make(0.95), uniforms: shared };
 }
 // a soft glow pool on the ground at the foot of the beam
 const POOL_TEX = (() => {
@@ -45,6 +56,7 @@ const POOL_TEX = (() => {
   return new THREE.CanvasTexture(c);
 })();
 const SPARK_N = 24;
+const CHEST_Y = 0.1 + 0.25 * 1.35;   // the box's bottom on the paving
 
 function chestMesh(color = '#ffd77a') {
   const g = new THREE.Group();
@@ -52,15 +64,16 @@ function chestMesh(color = '#ffd77a') {
   const pool = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), new THREE.MeshBasicMaterial({ map: POOL_TEX, color, transparent: true, opacity: 0.85,
     blending: THREE.AdditiveBlending, depthWrite: false }));
   pool.rotation.x = -Math.PI / 2; pool.position.y = 0.13; g.add(pool);   // over the paving slabs
-  const beamMat = beamMaterial(color);
-  const beam = new THREE.Mesh(BEAM_GEO, beamMat); g.add(beam);
+  const mats = beamMaterials(color), beamMat = { uniforms: mats.uniforms };   // beamMat.uniforms: time and colour of both layers
+  const beam = new THREE.Mesh(BEAM_GEO, mats.halo); beam.renderOrder = 2; g.add(beam);
+  const core = new THREE.Mesh(CORE_GEO, mats.core); core.renderOrder = 3; g.add(core);
   const sparkGeo = new THREE.BufferGeometry(), sp = new Float32Array(SPARK_N * 3), seeds = [];
   for (let k = 0; k < SPARK_N; k++) seeds.push([Math.random() * 6.283, 0.15 + Math.random() * 0.6, Math.random(), 0.6 + Math.random() * 0.8]);
   sparkGeo.setAttribute('position', new THREE.BufferAttribute(sp, 3));
   const sparks = new THREE.Points(sparkGeo, new THREE.PointsMaterial({ color, size: 0.09, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
   g.add(sparks);
-  // the chest, floating in the light
-  const chest = new THREE.Group(); chest.position.y = 1.1; chest.scale.setScalar(1.35); g.add(chest);
+  // the chest, standing on the ground in the light (the paving's top is at 0.1)
+  const chest = new THREE.Group(); chest.position.y = CHEST_Y; chest.scale.setScalar(1.35); g.add(chest);
   const wood = new THREE.MeshStandardMaterial({ color: '#5a3b22', roughness: 0.7 });
   const trim = new THREE.MeshStandardMaterial({ color: '#d9a640', roughness: 0.3, metalness: 0.85, emissive: '#3a2600', emissiveIntensity: 0.4 });
   const box = (m, w, h, d, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.castShadow = true; chest.add(o); return o; };
@@ -82,9 +95,8 @@ function animateChest(m, t, i) {
   u.beamMat.uniforms.uTime.value = t + i;
   u.pool.material.opacity = 0.65 + 0.2 * Math.sin(t * 2.4 + i);
   u.glow.intensity = 2.4 + 0.8 * Math.sin(t * 2.4 + i);
-  u.chest.position.y = 1.1 + Math.sin(t * 1.6 + i) * 0.12;
-  u.chest.rotation.y = t * 0.6 + i;
-  u.chest.rotation.z = Math.sin(t * 1.1 + i) * 0.05;
+  u.chest.position.y = CHEST_Y;
+  u.chest.rotation.y = i * 1.7;   // set down at its own angle, still
   u.trim.emissiveIntensity = 0.35 + 0.3 * Math.sin(t * 4 + i);
   const pos = u.sparks.geometry.attributes.position;
   u.seeds.forEach(([a, r, ph, sp], k) => {
@@ -336,6 +348,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
         animateChest(m, time, i);
         const d = Math.hypot(m.position.x - p.x, m.position.z - p.z);
         if (out && d < best) { best = d; near = i; }
+        if (out && d < 0.95 && d > 1e-4) { p.x = m.position.x + (p.x - m.position.x) / d * 0.95; p.z = m.position.z + (p.z - m.position.z) / d * 0.95; }   // you can't walk into it
       }
       // walking outdoors: metres, reported in small steps (the app caps each step)
       if (out && last) {

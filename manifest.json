@@ -1,7 +1,7 @@
 {
  "name": "city",
  "title": "Thành phố sống",
- "version": "0.7.2",
+ "version": "0.7.3",
  "entry": "city.js",
  "requires": {
   "host": 1

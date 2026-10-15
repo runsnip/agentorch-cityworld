@@ -78,12 +78,14 @@ export function createMinimap({ city, camera, player, isOutdoors, uiBusy, marker
         g.beginPath(); g.moveTo(0, -9); g.lineTo(9, -1); g.lineTo(6, -1); g.lineTo(6, 8); g.lineTo(-6, 8); g.lineTo(-6, -1); g.lineTo(-9, -1); g.closePath();
         g.stroke(); g.fill();
       } else {
-        g.beginPath(); g.rect(-6, -4, 12, 9); g.stroke(); g.fill();
-        g.beginPath(); g.ellipse(0, -4, 6, 3.5, 0, Math.PI, 0); g.stroke(); g.fill();
+        g.lineWidth = 1.5;   // a chest: small, so a few close together don't cover the streets
+        g.beginPath(); g.rect(-3.5, -2, 7, 5); g.stroke(); g.fill();
+        g.beginPath(); g.ellipse(0, -2, 3.5, 2, 0, Math.PI, 0); g.stroke(); g.fill();
       }
       if (out) {   // a small arrow toward it, on the rim
         g.rotate(Math.atan2(py, px));
-        g.beginPath(); g.moveTo(16, 0); g.lineTo(10, -5); g.lineTo(10, 5); g.closePath(); g.fill();
+        const k = glyph === 'home' ? 1 : 0.6;
+        g.beginPath(); g.moveTo(16 * k, 0); g.lineTo(10 * k, -5 * k); g.lineTo(10 * k, 5 * k); g.closePath(); g.fill();
       }
       g.restore();
     };
