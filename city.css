@@ -49,6 +49,13 @@
 .ct-bar { height: 5px; margin: 5px 0 3px; background: rgba(255,255,255,.1); }
 .ct-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--rc), #fff); transition: width .4s; }
 .ct-task small { font-size: 10.5px; color: #aab3c2; }
+/* a finished mission's chest, waiting to be opened */
+.ct-claim { flex: none; width: 34px; height: 30px; margin: -6px -4px -4px 0; padding: 0; border: 0; cursor: pointer; pointer-events: auto;
+  background: radial-gradient(circle at 50% 60%, rgba(255,200,80,.45), rgba(255,200,80,0) 70%); animation: ct-claim 1.4s ease-in-out infinite; }
+.ct-claim canvas { width: 34px; height: 30px; display: block; }
+.ct-claim:hover { filter: brightness(1.25); transform: scale(1.1); }
+@keyframes ct-claim { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+.ct-task.done small { color: #ffd77a; }
 .ct-task.done { opacity: .75; }
 .ct-row { display: flex; align-items: center; gap: 8px; margin-top: 2px; color: #d6dbe4; }
 .ct-row em { margin-left: auto; font-style: normal; font-weight: 800; color: #ffd77a; }

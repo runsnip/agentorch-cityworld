@@ -102,7 +102,6 @@
   "Lại gần rương hơn để mở.": "Get closer to the chest to open it.",
   "Đi bộ hoặc chạy ngoài phố, ra khỏi tòa nhà. Lái xe không tính.": "Walk or run in the streets, outside the building. Driving doesn't count.",
   "Ghé các công viên khác nhau trong thành phố (bãi cỏ xanh giữa các khối nhà). Mỗi công viên tính một lần trong ngày.": "Visit different parks in the city (green lawns between the blocks). Each park counts once a day.",
-  "Tìm rương dưới cột sáng vàng trên phố và mở ra (F hoặc bấm vào rương).": "Find chests under the golden light beams in the streets and open them (F, or click the chest).",
   "Hỏi lễ tân ở sảnh tầng G (F ở quầy lễ tân). Mỗi câu hỏi tính một lần.": "Ask the receptionist in the ground-floor lobby (F at the desk). Each question counts once.",
   "Đi thang máy giữa các tầng (E trong thang máy).": "Ride the lift between floors (E inside the lift).",
   "Đi tới cột sáng xanh trên phố.": "Walk to the blue light beam in the streets.",
@@ -133,6 +132,11 @@
   "T": "W",
   "TB": "NW",
   "Công ty": "Company",
-  "Rương gần nhất": "Nearest chest"
+  "Rương gần nhất": "Nearest chest",
+  "Tìm rương lơ lửng trên ánh đèn vàng ngoài phố (xem bản đồ nhỏ) và mở ra (F hoặc bấm vào rương).": "Find the chests hovering over a golden light in the streets (see the minimap) and open them (F, or click the chest).",
+  "Mở rương nhận thưởng": "Open the chest for your reward",
+  "Đang mở rương…": "Opening the chest…",
+  "Xong! Bấm rương để nhận thưởng": "Done! Click the chest for your reward",
+  "Bấm rương để nhận": "Click the chest to claim"
  }
 }

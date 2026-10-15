@@ -15,13 +15,12 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const seeded = (seed) => () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
 const REACH = 2.2;
 
-// A column of light rising from the ground: a thin bright core inside a wide soft halo, both fading out at
-// their edges (the more side-on the surface, the fainter) so it reads as light with depth, not a painted
-// tube; faint bands drift up it. Tall enough to stand over the trees and low roofs, so a chest is spotted
-// from blocks away; up close it fades almost away so it never walls off the view.
-const BEAM_H = 38;
-const BEAM_GEO = new THREE.CylinderGeometry(1.1, 1.3, BEAM_H, 32, 1, true).translate(0, BEAM_H / 2, 0);
-const CORE_GEO = new THREE.CylinderGeometry(0.16, 0.22, BEAM_H, 16, 1, true).translate(0, BEAM_H / 2, 0);
+// Light cast up from the ground, like a lamp set in the paving at night: a short cone (half a metre) widening
+// as it rises, a brighter core inside a soft halo, both fading at their edges and towards the top; the chest
+// floats just above it. (A chest is found from afar with the minimap and the compass.)
+const BEAM_H = 0.55;
+const BEAM_GEO = new THREE.CylinderGeometry(0.62, 0.42, BEAM_H, 32, 1, true).translate(0, BEAM_H / 2 + 0.1, 0);
+const CORE_GEO = new THREE.CylinderGeometry(0.34, 0.2, BEAM_H, 24, 1, true).translate(0, BEAM_H / 2 + 0.1, 0);
 // both layers share one set of uniforms (time, colour), each with its own strength
 function beamMaterials(color) {
   const shared = { uTime: { value: 0 }, uColor: { value: new THREE.Color(color) } };
@@ -36,16 +35,15 @@ function beamMaterials(color) {
     fragmentShader: `uniform float uTime; uniform vec3 uColor; uniform float uK; varying vec2 vUv; varying vec3 vN; varying vec3 vView; varying vec3 vWorld;
       void main() {
         float up = vUv.y;                                               // 0 at the ground, 1 at the top
-        float rise = mix(1.0, 0.35, up) * smoothstep(1.0, 0.8, up);      // strong low down, soft at the very top
+        float rise = pow(1.0 - up, 1.6);                                  // strong at the foot, gone at the top
         float facing = abs(dot(normalize(vN), normalize(vView)));        // 1 facing you, 0 side-on at the edges
-        float soft = pow(facing, 2.2);
-        float bands = 0.7 + 0.3 * sin((up * 40.0 - uTime * 2.2) * 6.2832);
-        float near = 0.12 + 0.88 * smoothstep(3.0, 28.0, distance(vWorld, cameraPosition));   // close by: almost gone
-        gl_FragColor = vec4(min(uColor * (1.2 + 0.4 * bands), vec3(1.0)), rise * soft * bands * near * uK);
+        float soft = pow(facing, 1.4);
+        float bands = 0.8 + 0.2 * sin((up * 3.0 - uTime * 1.2) * 6.2832);
+        gl_FragColor = vec4(min(uColor * (1.2 + 0.4 * bands), vec3(1.0)), rise * soft * bands * uK);
       }`,
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
   });
-  return { halo: make(0.38), core: make(0.95), uniforms: shared };
+  return { halo: make(0.85), core: make(1.0), uniforms: shared };
 }
 // a soft glow pool on the ground at the foot of the beam
 const POOL_TEX = (() => {
@@ -56,9 +54,11 @@ const POOL_TEX = (() => {
   return new THREE.CanvasTexture(c);
 })();
 const SPARK_N = 24;
-const CHEST_Y = 0.1 + 0.25 * 1.35;   // the box's bottom on the paving
+const MOTE_GEO = new THREE.OctahedronGeometry(0.018);
+const _mote = new THREE.Object3D();
+const CHEST_SCALE = 1.15, CHEST_Y = 0.1 + BEAM_H + 0.12 + 0.25 * CHEST_SCALE;   // floating just over the light
 
-function chestMesh(color = '#ffd77a') {
+function chestMesh(color = '#ffc23d') {
   const g = new THREE.Group();
   // the light: a pool on the ground, the column, sparks rising inside it
   const pool = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), new THREE.MeshBasicMaterial({ map: POOL_TEX, color, transparent: true, opacity: 0.85,
@@ -67,13 +67,14 @@ function chestMesh(color = '#ffd77a') {
   const mats = beamMaterials(color), beamMat = { uniforms: mats.uniforms };   // beamMat.uniforms: time and colour of both layers
   const beam = new THREE.Mesh(BEAM_GEO, mats.halo); beam.renderOrder = 2; g.add(beam);
   const core = new THREE.Mesh(CORE_GEO, mats.core); core.renderOrder = 3; g.add(core);
-  const sparkGeo = new THREE.BufferGeometry(), sp = new Float32Array(SPARK_N * 3), seeds = [];
+  const seeds = [];
   for (let k = 0; k < SPARK_N; k++) seeds.push([Math.random() * 6.283, 0.15 + Math.random() * 0.6, Math.random(), 0.6 + Math.random() * 0.8]);
-  sparkGeo.setAttribute('position', new THREE.BufferAttribute(sp, 3));
-  const sparks = new THREE.Points(sparkGeo, new THREE.PointsMaterial({ color, size: 0.09, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+  // motes drifting up in the light: tiny glowing crystals, real little solids
+  const sparks = new THREE.InstancedMesh(MOTE_GEO, new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(1.3) }), SPARK_N);
+  sparks.frustumCulled = false;
   g.add(sparks);
-  // the chest, standing on the ground in the light (the paving's top is at 0.1)
-  const chest = new THREE.Group(); chest.position.y = CHEST_Y; chest.scale.setScalar(1.35); g.add(chest);
+  // the chest, floating just over the light (the paving's top is at 0.1)
+  const chest = new THREE.Group(); chest.position.y = CHEST_Y; chest.scale.setScalar(CHEST_SCALE); g.add(chest);
   const wood = new THREE.MeshStandardMaterial({ color: '#5a3b22', roughness: 0.7 });
   const trim = new THREE.MeshStandardMaterial({ color: '#d9a640', roughness: 0.3, metalness: 0.85, emissive: '#3a2600', emissiveIntensity: 0.4 });
   const box = (m, w, h, d, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.castShadow = true; chest.add(o); return o; };
@@ -84,7 +85,7 @@ function chestMesh(color = '#ffd77a') {
   for (const x of [-0.4, 0.4]) box(trim, 0.06, 0.52, 0.62, x, 0.01, 0);
   box(trim, 0.92, 0.06, 0.62, 0, 0.25, 0);
   box(trim, 0.14, 0.16, 0.04, 0, 0.17, 0.31);
-  const glow = new THREE.PointLight(color, 3, 6, 2); glow.position.y = 1.1; g.add(glow);
+  const glow = new THREE.PointLight(color, 3, 6, 2); glow.position.y = 0.5; g.add(glow);
   g.userData = { lid, beam, beamMat, trim, chest, sparks, seeds, pool, glow };
   return g;
 }
@@ -95,15 +96,17 @@ function animateChest(m, t, i) {
   u.beamMat.uniforms.uTime.value = t + i;
   u.pool.material.opacity = 0.65 + 0.2 * Math.sin(t * 2.4 + i);
   u.glow.intensity = 2.4 + 0.8 * Math.sin(t * 2.4 + i);
-  u.chest.position.y = CHEST_Y;
-  u.chest.rotation.y = i * 1.7;   // set down at its own angle, still
+  u.chest.position.y = CHEST_Y + Math.sin(t * 1.6 + i) * 0.05;   // hovering, gently
+  u.chest.rotation.y = i * 1.7 + Math.sin(t * 0.5 + i) * 0.25;
   u.trim.emissiveIntensity = 0.35 + 0.3 * Math.sin(t * 4 + i);
-  const pos = u.sparks.geometry.attributes.position;
   u.seeds.forEach(([a, r, ph, sp], k) => {
     const h = ((t * sp * 0.35 + ph) % 1);
-    pos.setXYZ(k, Math.cos(a + t * 0.8) * r, h * 4.5, Math.sin(a + t * 0.8) * r);
+    _mote.position.set(Math.cos(a + t * 0.8) * r * (0.7 + h * 0.4), 0.1 + h * 0.6, Math.sin(a + t * 0.8) * r * (0.7 + h * 0.4));   // in the light, under the chest
+    _mote.rotation.set(t * 2 + k, t * 3 + k, 0);
+    _mote.scale.setScalar(Math.sin(h * Math.PI));   // they grow in, and fade out by shrinking at the top
+    _mote.updateMatrix(); u.sparks.setMatrixAt(k, _mote.matrix);
   });
-  pos.needsUpdate = true;
+  u.sparks.instanceMatrix.needsUpdate = true;
 }
 
 function markMesh() {
@@ -144,12 +147,23 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
     shownWalk = Math.floor(sinceReport);
     tracker.innerHTML = `<div class="ct-head"><small>${t('Nhiệm vụ hôm nay')}</small><b class="ct-clock" title="${t('Hết ngày, nhiệm vụ chưa xong sẽ mất phần thưởng')}">${t('Còn {time}', { time: clockShown })}</b></div>
       ${state.quests.map((q) => `<div class="ct-task r-${q.rarity}${q.done ? ' done' : ''}${detailId === q.id ? ' on' : ''}" data-q="${esc(q.id)}">
-        <div class="ct-top"><span>${esc(q.name)}</span><em class="ct-gift">${q.claimed ? '✓' : RARITY_NAME[q.rarity]}</em></div>
+        <div class="ct-top"><span>${esc(q.name)}</span>${ready(q) ? `<button class="ct-claim" data-claim="${esc(q.id)}" title="${t('Mở rương nhận thưởng')}"></button>` : `<em class="ct-gift">${q.claimed ? '✓' : RARITY_NAME[q.rarity]}</em>`}</div>
         <div class="ct-bar"><i style="width:${Math.min(100, have(q) / q.target * 100)}%"></i></div>
-        <small>${q.claimed ? t('Đã nhận') : q.done ? t('Đang xác nhận…') : q.goal === 'walk' ? t('{n} / {target} m', { n: have(q), target: q.target }) : `${q.progress}/${q.target}`}</small></div>`).join('')}
+        <small>${q.claimed ? t('Đã nhận') : claiming.has(q.id) ? t('Đang mở rương…') : q.done ? t('Xong! Bấm rương để nhận thưởng') : q.goal === 'walk' ? t('{n} / {target} m', { n: have(q), target: q.target }) : `${q.progress}/${q.target}`}</small></div>`).join('')}
       <div class="ct-row"><span class="ct-chest"></span>${t('Rương còn lại trên phố')}<em>${chestsLeft}/${state.count}</em></div>
       ${state.pending ? `<div class="ct-pending">${t('{n} phần thưởng đang chờ xác nhận', { n: state.pending })}</div>` : ''}`;
     tracker.querySelectorAll('[data-q]').forEach((el) => { el.onclick = () => showDetail(el.dataset.q); });
+    // a finished mission's chest: opening it is what claims the reward (the app rolls it then)
+    tracker.querySelectorAll('[data-claim]').forEach((el) => {
+      const id = el.dataset.claim;
+      if (!claimIcons.has(id)) claimIcons.set(id, itemCanvas({ kind: 'chest', id: 'chest' }, { spin: true }));
+      el.append(claimIcons.get(id));
+      el.onclick = (e) => {
+        e.stopPropagation();
+        if (claiming.has(id)) return;
+        claiming.add(id); audio?.sfx('chest'); call('cityClaim', id); renderTracker();
+      };
+    });
     chestIcon ||= itemCanvas({ kind: 'chest', id: 'chest' }, { spin: true });   // a little chest turning, kept across redraws
     tracker.querySelector('.ct-chest')?.append(chestIcon);
     if (detailId) showDetail(detailId, true);
@@ -173,10 +187,12 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
   detail.id = 'quest-detail'; detail.className = 'hidden';
   document.body.append(detail);
   let detailId = null, chestIcon = null;
+  const claiming = new Set(), claimIcons = new Map();   // missions whose chest was opened, waiting for the app; their chest icons
+  const ready = (q) => q.done && !q.claimed && !claiming.has(q.id);
   const HOW = {
     walk: t('Đi bộ hoặc chạy ngoài phố, ra khỏi tòa nhà. Lái xe không tính.'),
     parks: t('Ghé các công viên khác nhau trong thành phố (bãi cỏ xanh giữa các khối nhà). Mỗi công viên tính một lần trong ngày.'),
-    chests: t('Tìm rương dưới cột sáng vàng trên phố và mở ra (F hoặc bấm vào rương).'),
+    chests: t('Tìm rương lơ lửng trên ánh đèn vàng ngoài phố (xem bản đồ nhỏ) và mở ra (F hoặc bấm vào rương).'),
     reception: t('Hỏi lễ tân ở sảnh tầng G (F ở quầy lễ tân). Mỗi câu hỏi tính một lần.'),
     lift: t('Đi thang máy giữa các tầng (E trong thang máy).'),
     visit: t('Đi tới cột sáng xanh trên phố.'),
@@ -202,7 +218,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       <div class="qd-label">${t('Tiến độ')}</div>
       <div class="qd-bar"><i style="width:${Math.min(100, have / q.target * 100)}%"></i></div>
       <div class="qd-row"><span>${q.goal === 'walk' ? `${have} / ${q.target} m` : `${have} / ${q.target}`}</span>
-        <em>${q.claimed ? t('Đã nhận thưởng') : q.done ? t('Đang xác nhận…') : t('Còn {time}', { time: left() })}</em></div>
+        <em>${q.claimed ? t('Đã nhận thưởng') : claiming.has(q.id) ? t('Đang mở rương…') : q.done ? t('Bấm rương để nhận') : t('Còn {time}', { time: left() })}</em></div>
       <div class="qd-label">${t('Phần thưởng')}</div>
       <div class="qd-reward"><span class="qd-rar">${RAR()[q.rarity] || q.rarity}</span>${t('Một món ngẫu nhiên từ bậc này trở lên, tung lúc hoàn thành. Hết ngày chưa xong là mất.')}</div>`;
     detail.querySelector('.qd-close').onclick = () => showDetail(id);
@@ -285,14 +301,15 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       inFlight = 0;   // the app's count now includes what was reported
       const fresh = !state || state.day !== msg.day || state.seed !== msg.seed;
       state = msg;
-      if (fresh) { placeChests(); parksSeen = new Set(); }
+      if (fresh) { placeChests(); parksSeen = new Set(); claiming.clear(); claimIcons.clear(); }
+      for (const q of msg.quests) if (q.claimed) { claiming.delete(q.id); claimIcons.delete(q.id); }
       else for (const i of msg.opened) { const m = chests.get(i); if (m) { group.remove(m); chests.delete(i); } }
       placeMarks();
       renderTracker();
     },
     // rewards come once the app has checked them against the repository (a moment later, or when back online)
     onReward(msg) {
-      if (msg.error) { onHint(msg.error); return; }
+      if (msg.error) { claiming.clear(); renderTracker(); onHint(msg.error); return; }
       for (const r of msg.rewards || []) if (r.source !== 'chest') track('city_mission_done', { rarity: r.item.rarity });
       // several at once (a chest that also finishes a mission): one after the other, numbered
       const list = msg.rewards || [];
@@ -339,7 +356,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
           animateChest(m, time, i);
           m.userData.lid.rotation.x = -1.9 * Math.min(1, o * 2);
           m.userData.chest.position.y += o * 0.8;
-          m.userData.chest.scale.setScalar(1.35 * (1 - Math.max(0, o - 0.6) * 2.4));
+          m.userData.chest.scale.setScalar(CHEST_SCALE * (1 - Math.max(0, o - 0.6) * 2.4));
           m.userData.beamMat.uniforms.uColor.value.multiplyScalar(0.96);
           m.userData.pool.material.opacity *= 1 - o;
           if (o >= 1) { group.remove(m); chests.delete(i); }
