@@ -203,6 +203,74 @@ const GANH = (() => {
 
 // ---------------------------------------------------------------- batches in squares
 
+// a bowl of noodle soup, all in 3D: a white ceramic bowl with a blue rim (lathed), the broth, noodles in loose
+// loops, herbs and slices on top, chopsticks across, and puffs of steam rising (see update)
+const BOWL_MAT = {
+  ceramic: new THREE.MeshStandardMaterial({ color: 0xf6f3ec, roughness: 0.25 }), rim: new THREE.MeshStandardMaterial({ color: 0x2f5fa8, roughness: 0.3 }),
+  broth: new THREE.MeshStandardMaterial({ color: 0xc98b46, roughness: 0.15, transparent: true, opacity: 0.92 }), noodle: new THREE.MeshStandardMaterial({ color: 0xf2ead6, roughness: 0.6 }),
+  herb: new THREE.MeshStandardMaterial({ color: 0x4d9a3c, roughness: 0.7 }), meat: new THREE.MeshStandardMaterial({ color: 0x8a4a35, roughness: 0.7 }),
+  wood: new THREE.MeshStandardMaterial({ color: 0xc89b62, roughness: 0.6 }), steam: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, transparent: true, opacity: 0.35, depthWrite: false }),
+};
+// what a stall serves: a bowl of soup, a plate, a bánh mì on its paper, or a glass with ice and a straw
+const SERVING = { 'Phở': 'soup', 'Bún bò': 'soup', 'Hủ tiếu': 'soup', 'Bún chả': 'soup', 'Cơm tấm': 'rice', 'Xôi': 'xoi', 'Bánh mì': 'banhmi',
+  'Cà phê': 'coffee', 'Nước mía': 'cane', 'Chè': 'che' };
+function makeServing(dish) {
+  const kind = SERVING[dish] || 'soup';
+  if (kind === 'soup') return makeBowl();
+  const g = new THREE.Group(), add = (geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; };
+  const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.5, ...extra });
+  if (kind === 'rice' || kind === 'xoi') {
+    const plate = new THREE.LatheGeometry([[0, 0], [0.1, 0], [0.13, 0.012], [0.14, 0.02], [0.135, 0.022], [0.12, 0.012], [0, 0.008]].map(([x, y]) => new THREE.Vector2(x, y)), 28);
+    add(plate, BOWL_MAT.ceramic);
+    const mound = add(new THREE.SphereGeometry(0.07, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), std(kind === 'xoi' ? 0xf1e3a4 : 0xf7f3ea, { roughness: 0.9 }), -0.03, 0.012, 0);
+    mound.scale.set(1.2, 0.7, 1);
+    if (kind === 'rice') {
+      const rib = add(new THREE.BoxGeometry(0.1, 0.014, 0.06), std(0x9b4b26, { roughness: 0.6 }), 0.06, 0.025, -0.01); rib.rotation.y = 0.4;
+      for (let k = 0; k < 3; k++) add(new THREE.CylinderGeometry(0.018, 0.018, 0.006, 14), std(0x7dbb5a), 0.05 + k * 0.012, 0.022 + k * 0.004, 0.06);
+      add(new THREE.SphereGeometry(0.03, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), std(0xf7f2e6), -0.07, 0.016, 0.06).scale.set(1, 0.4, 1);
+      add(new THREE.SphereGeometry(0.013, 10, 8), std(0xf2b021), -0.07, 0.024, 0.06);
+    } else for (let k = 0; k < 12; k++) add(new THREE.SphereGeometry(0.006, 5, 4), std(0xb7782f), -0.03 + (Math.random() - 0.5) * 0.1, 0.06, (Math.random() - 0.5) * 0.08);
+    return g;
+  }
+  if (kind === 'banhmi') {
+    add(new THREE.BoxGeometry(0.22, 0.004, 0.16), std(0xd8c7a3, { roughness: 0.95 }), 0, 0.002, 0);
+    const loaf = add(new THREE.CapsuleGeometry(0.035, 0.14, 6, 12), std(0xd29a52, { roughness: 0.7 }), 0, 0.035, 0); loaf.rotation.z = Math.PI / 2; loaf.scale.set(1, 1, 0.85);
+    for (let k = -2; k <= 2; k++) { const cut = add(new THREE.BoxGeometry(0.004, 0.004, 0.05), std(0xa86a33), k * 0.03, 0.068, 0); cut.rotation.y = 0.6; }
+    add(new THREE.BoxGeometry(0.15, 0.012, 0.012), std(0x5aa648), 0, 0.03, 0.028);
+    return g;
+  }
+  // a glass: clear walls, the drink inside, ice cubes, a straw
+  const drink = { coffee: 0x3a2312, cane: 0xd9d68a, che: 0xc98fb8 }[kind];
+  add(new THREE.CylinderGeometry(0.038, 0.032, 0.13, 20, 1, true), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.05, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false }), 0, 0.065, 0);
+  add(new THREE.CylinderGeometry(0.032, 0.032, 0.006, 20), BOWL_MAT.ceramic, 0, 0.003, 0).material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.05, transparent: true, opacity: 0.4 });
+  if (kind === 'che') {
+    add(new THREE.CylinderGeometry(0.031, 0.031, 0.035, 18), std(0x5a8a3a, { transparent: true, opacity: 0.9 }), 0, 0.022, 0);
+    add(new THREE.CylinderGeometry(0.033, 0.031, 0.04, 18), std(0xf0e6c8, { transparent: true, opacity: 0.9 }), 0, 0.06, 0);
+    add(new THREE.CylinderGeometry(0.035, 0.033, 0.03, 18), std(drink, { transparent: true, opacity: 0.9 }), 0, 0.095, 0);
+  } else add(new THREE.CylinderGeometry(0.035, 0.031, 0.1, 18), std(drink, { roughness: 0.15, transparent: true, opacity: 0.85 }), 0, 0.055, 0);
+  for (let k = 0; k < 4; k++) { const ice = add(new THREE.BoxGeometry(0.022, 0.022, 0.022), std(0xeaf4fa, { roughness: 0.05, transparent: true, opacity: 0.6 }), (Math.random() - 0.5) * 0.03, 0.1 + Math.random() * 0.015, (Math.random() - 0.5) * 0.03); ice.rotation.set(Math.random(), Math.random(), 0); }
+  const straw = add(new THREE.CylinderGeometry(0.004, 0.004, 0.2, 8), std(0xe84a5f), 0.012, 0.13, 0); straw.rotation.z = -0.25;
+  g.userData.steam = [];
+  return g;
+}
+function makeBowl() {
+  const g = new THREE.Group();
+  const prof = [[0.0, 0], [0.04, 0], [0.05, 0.012], [0.075, 0.03], [0.095, 0.065], [0.105, 0.09], [0.1, 0.092], [0.09, 0.066], [0.068, 0.034], [0.0, 0.02]].map(([x, y]) => new THREE.Vector2(x, y));
+  g.add(new THREE.Mesh(new THREE.LatheGeometry(prof, 28), BOWL_MAT.ceramic));
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.103, 0.005, 6, 32), BOWL_MAT.rim); rim.rotation.x = Math.PI / 2; rim.position.y = 0.09; g.add(rim);
+  const broth = new THREE.Mesh(new THREE.CircleGeometry(0.093, 28), BOWL_MAT.broth); broth.rotation.x = -Math.PI / 2; broth.position.y = 0.075; g.add(broth);
+  for (let k = 0; k < 7; k++) {
+    const n = new THREE.Mesh(new THREE.TorusGeometry(0.025 + Math.random() * 0.03, 0.0035, 5, 18, Math.PI * (1 + Math.random())), BOWL_MAT.noodle);
+    n.rotation.set(Math.PI / 2 + (Math.random() - 0.5) * 0.3, 0, Math.random() * 6.28); n.position.set((Math.random() - 0.5) * 0.08, 0.077, (Math.random() - 0.5) * 0.08); g.add(n);
+  }
+  for (let k = 0; k < 3; k++) { const m = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.006, 0.03), BOWL_MAT.meat); m.position.set(-0.03 + k * 0.03, 0.08, -0.02 + (k % 2) * 0.03); m.rotation.y = k; g.add(m); }
+  for (let k = 0; k < 8; k++) { const h = new THREE.Mesh(new THREE.SphereGeometry(0.008, 5, 4), BOWL_MAT.herb); h.scale.set(1.6, 0.4, 1); h.position.set((Math.random() - 0.5) * 0.12, 0.081, (Math.random() - 0.5) * 0.12); g.add(h); }
+  for (const dx of [-0.012, 0.012]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.004, 0.24, 6), BOWL_MAT.wood); c.rotation.z = Math.PI / 2; c.rotation.y = 0.2; c.position.set(0.02, 0.098, dx); g.add(c); }
+  g.userData.steam = [0, 1, 2, 3].map((k) => { const p = new THREE.Mesh(new THREE.IcosahedronGeometry(0.03, 1), BOWL_MAT.steam); p.userData.t = k * 0.6; g.add(p); return p; });
+  g.traverse((m) => { if (m.isMesh) m.castShadow = m.material !== BOWL_MAT.steam; });
+  return g;
+}
+
 export function createStreetLife(host, street) {
   const { scene, city, player, camera } = host;
   const G = city.grid, CELL = 2 * G.pitch, inner = G.inner;
@@ -440,6 +508,31 @@ export function createStreetLife(host, street) {
     seatsAll.push({ key: `x${k}`, x: s.x + RIDER_AT.x * c, z: s.z - RIDER_AT.x * sn, face: s.ry + Math.PI / 2, sit: true, y: SLAB + RIDER_AT.y, helmet: true, xeom: s });
   });
   if (market) market.stalls.forEach((s, k) => { if (k % 2 === 0) seatsAll.push({ key: `m${k}`, x: s.seller.x, z: s.seller.z, face: s.face, sit: false, y: SLAB }); });
+  // the stools left empty are the CEO's to sit on (F, host.addSeats): they order the stall's dish and a bowl comes
+  // out to the table in front of them, steaming; it's cleared when they get up
+  const bowls = [];
+  if (host.addSeats) {
+    const mine = [];
+    stalls.forEach((st, si) => st.seats.forEach((sp, k) => {
+      if ((si * 7 + k) % 3 !== 1) return;
+      const fx = Math.sin(sp.face), fz = Math.cos(sp.face);
+      let bowl = null, timer = 0;
+      mine.push({
+        pos: new THREE.Vector3(sp.x, SLAB + 0.41 - 0.505, sp.z), approach: new THREE.Vector3(sp.x - fx * 0.95, 0, sp.z - fz * 0.95), facing: sp.face,
+        label: t('Ngồi ăn <b>{dish}</b>', { dish: st.dish }),
+        onSit() {
+          street.pop(street.pick([t('Cho một phần {dish} nha!', { dish: st.dish }), t('Một phần {dish}, không hành nha.', { dish: st.dish }), t('Chủ quán ơi, {dish}!', { dish: st.dish })]), () => host.player.root.position);
+          timer = setTimeout(() => {
+            street.pop(street.pick([t('Có liền nè!'), t('Nóng hổi đây!'), t('Ăn ngon nha!')]), () => new THREE.Vector3(st.at.x, 0, st.at.z), 'them');
+            bowl = makeServing(st.dish); bowl.position.set(sp.x + fx * 0.36, SLAB + 0.537, sp.z + fz * 0.36); bowl.rotation.y = sp.face;
+            scene.add(bowl); bowls.push(bowl); host.audio?.sfx('drop');
+          }, 2200);
+        },
+        onStand() { clearTimeout(timer); if (bowl) { bowl.removeFromParent(); bowls.splice(bowls.indexOf(bowl), 1); bowl.traverse((m) => m.geometry?.dispose()); bowl = null; } },
+      });
+    }));
+    host.addSeats(mine);
+  }
   const frustum = new THREE.Frustum(), _vp = new THREE.Matrix4(), _sph = new THREE.Sphere();
   const inView = (x, z) => { _vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); frustum.setFromProjectionMatrix(_vp); return frustum.intersectsSphere(_sph.set(_h.set(x, 1, z), 1.2)); };
   let poolT = 0;
@@ -721,6 +814,14 @@ export function createStreetLife(host, street) {
   let t0 = 0;
   return {
     update(dt) {
+      // steam off the CEO's bowl: puffs rise, swell and fade, one after another
+      for (const b of bowls) for (const p of b.userData.steam || []) {
+        p.userData.t = (p.userData.t + dt * 0.45) % 2.4;
+        const k = p.userData.t / 2.4;
+        p.position.set(Math.sin(p.userData.t * 3 + p.id) * 0.03, 0.1 + k * 0.42, Math.cos(p.userData.t * 2 + p.id) * 0.02);
+        p.scale.setScalar(0.6 + k * 1.6);
+        p.visible = k < 0.95;
+      }
       t0 += dt;
       const cam = camera.position, far = (scene.fog?.far ?? 320) + 10, out = host.isOutdoors() || !!street?.driving;
       for (const sq of squareList) {

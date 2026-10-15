@@ -163,6 +163,13 @@
   "Lên xe đi, rẻ mà!": "Hop on, it's cheap!",
   "Xe ôm không? Đi đâu cũng chở!": "Bike taxi? Anywhere you like!",
   "Chợ": "Market",
-  "Nhà": "Home"
+  "Nhà": "Home",
+  "Ngồi ăn <b>{dish}</b>": "Sit down for <b>{dish}</b>",
+  "Một phần {dish}, không hành nha.": "One {dish}, no onions please.",
+  "Chủ quán ơi, {dish}!": "Excuse me — {dish}, please!",
+  "Có liền nè!": "Coming right up!",
+  "Nóng hổi đây!": "Piping hot!",
+  "Ăn ngon nha!": "Enjoy!",
+  "Cho một phần {dish} nha!": "One {dish}, please!"
  }
 }
