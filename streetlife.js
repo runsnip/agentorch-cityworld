@@ -526,6 +526,9 @@ export function createStreetLife(host, street) {
             street.pop(street.pick([t('Có liền nè!'), t('Nóng hổi đây!'), t('Ăn ngon nha!')]), () => new THREE.Vector3(st.at.x, 0, st.at.z), 'them');
             bowl = makeServing(st.dish); bowl.position.set(sp.x + fx * 0.36, SLAB + 0.537, sp.z + fz * 0.36); bowl.rotation.y = sp.face;
             scene.add(bowl); bowls.push(bowl); host.audio?.sfx('drop');
+            // the CEO eats: chopsticks to a bowl or a plate; a glass or a bánh mì goes up to the mouth itself
+            const kind = { soup: 'soup', rice: 'rice', xoi: 'rice', banhmi: 'bread' }[SERVING[st.dish] || 'soup'] || 'drink';
+            host.playerEat?.({ at: bowl.position.clone(), kind, prop: kind === 'drink' || kind === 'bread' ? bowl : null });
           }, 2200);
         },
         onStand() { clearTimeout(timer); if (bowl) { bowl.removeFromParent(); bowls.splice(bowls.indexOf(bowl), 1); bowl.traverse((m) => m.geometry?.dispose()); bowl = null; } },
