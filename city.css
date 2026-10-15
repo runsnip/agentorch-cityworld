@@ -150,5 +150,5 @@
   background: linear-gradient(90deg, transparent, rgba(8,11,18,.82) 18%, rgba(8,11,18,.82) 82%, transparent); }
 #city-compass .cc-home { display: flex; justify-content: center; gap: 16px; margin-top: 3px; font: 700 11.5px -apple-system, sans-serif; color: #d6dbe4;
   text-shadow: 0 1px 3px #000; }
-#city-compass .cc-hq b { color: #d9b26f; } #city-compass .cc-chest b { color: #ffcf4a; }
+#city-compass .cc-hq b { color: #d9b26f; } #city-compass .cc-home-d b { color: #7fd38a; } #city-compass .cc-chest b { color: #ffcf4a; }
 #city-minimap.hidden, #city-compass.hidden { display: none; }

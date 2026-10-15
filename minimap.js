@@ -2,7 +2,8 @@
 // is up), and a compass strip across the top showing the heading, the way back to the company and the
 // nearest of today's chests. Only outdoors (walking or driving), hidden while a panel is open.
 //
-// createMinimap({ city, camera, player, isOutdoors, uiBusy, markers }) → { update(dt) }
+// createMinimap({ city, camera, player, isOutdoors, uiBusy, markers, places }) → { update(dt) }
+//   places() → { companies: [{ name, color, x, z, here }], home: { x, z } | null } (an older app: just its one company)
 //   markers() → [{ kind: 'chest' | 'visit', x, z }]
 
 import { t } from '/i18n.js';
@@ -10,9 +11,9 @@ import { t } from '/i18n.js';
 const SIZE = 196, R = SIZE / 2 - 6;      // css px; R: the map's radius inside its rim
 const SCALE = 0.85;                      // px per metre → about 110 m to the rim
 const STRIP_W = 460, STRIP_H = 46, FOV = Math.PI * 0.75;   // the compass shows 135° across
-const GOLD = '#d9b26f', CHEST = '#ffcf4a', VISIT = '#4fc3ff';
+const GOLD = '#d9b26f', CHEST = '#ffcf4a', VISIT = '#4fc3ff', HOME = '#7fd38a';
 
-export function createMinimap({ city, camera, player, isOutdoors, uiBusy, markers }) {
+export function createMinimap({ city, camera, player, isOutdoors, uiBusy, markers, places = null }) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const wrap = document.createElement('div'); wrap.id = 'city-minimap'; wrap.className = 'hidden';
   const map = document.createElement('canvas'); map.width = map.height = SIZE * dpr;
@@ -31,8 +32,11 @@ export function createMinimap({ city, camera, player, isOutdoors, uiBusy, marker
   for (let i = -G.rings; i <= G.rings; i++) for (let j = -G.rings; j <= G.rings; j++) blocks.push([G.cx + i * G.pitch, G.cz + j * G.pitch, i === 0 && j === 0]);
   const buildings = city.walls.filter((w) => w.kind === 'building');
   const HQ = { x: G.cx, z: G.cz - 8 };   // the plaza is 8 m in front of the building's centre
+  // every company (the one the CEO is in, in gold) and the CEO's home; an older app has only the one company
+  const where = () => places?.() || { companies: [{ name: t('Công ty'), color: GOLD, x: HQ.x, z: HQ.z, here: true }], home: null };
   const edge = G.rings * G.pitch + G.pitch / 2;
 
+  const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const DIRS = [t('B'), t('ĐB'), t('Đ'), t('ĐN'), t('N'), t('TN'), t('T'), t('TB')];
   let acc = 0, shown = false;
 
@@ -61,8 +65,12 @@ export function createMinimap({ city, camera, player, isOutdoors, uiBusy, marker
     for (const p of city.parks) g.fillRect(p.x - p.half, p.z - p.half, p.half * 2, p.half * 2);
     g.fillStyle = '#9aa3b0';
     for (const b of buildings) g.fillRect(b.minX, b.minZ, b.maxX - b.minX, b.maxZ - b.minZ);
-    g.fillStyle = GOLD;                                                      // the company
-    g.fillRect(HQ.x - 24, HQ.z - 12, 48, 24);
+    const P = where();
+    for (const c of P.companies) {   // the companies' buildings in their colours, the one you're in outlined in gold
+      g.fillStyle = c.color || GOLD; g.fillRect(c.x - 18, c.z - 26, 36, 22);
+      if (c.here) { g.lineWidth = 3 / SCALE; g.strokeStyle = GOLD; g.strokeRect(c.x - 18, c.z - 26, 36, 22); }
+    }
+    if (P.home) { g.fillStyle = '#c96f4a'; g.fillRect(P.home.x - 7, P.home.z - 5, 14, 10); }
     g.restore();
 
     // pins: drawn upright; past the rim they sit on it, pointing the way
@@ -74,7 +82,10 @@ export function createMinimap({ city, camera, player, isOutdoors, uiBusy, marker
       const cx = SIZE / 2 + px, cy = SIZE / 2 + py;
       g.save(); g.translate(cx, cy);
       g.fillStyle = color; g.strokeStyle = '#0a0d14'; g.lineWidth = 2;
-      if (glyph === 'home') {
+      if (glyph === 'office') {   // a tower with a row of windows
+        g.beginPath(); g.rect(-6, -9, 12, 17); g.stroke(); g.fill();
+        g.fillStyle = '#0a0d14'; for (const y of [-6, -1, 4]) { g.fillRect(-3.5, y, 2.5, 2.5); g.fillRect(1, y, 2.5, 2.5); }
+      } else if (glyph === 'home') {
         g.beginPath(); g.moveTo(0, -9); g.lineTo(9, -1); g.lineTo(6, -1); g.lineTo(6, 8); g.lineTo(-6, 8); g.lineTo(-6, -1); g.lineTo(-9, -1); g.closePath();
         g.stroke(); g.fill();
       } else {
@@ -90,7 +101,8 @@ export function createMinimap({ city, camera, player, isOutdoors, uiBusy, marker
       g.restore();
     };
     for (const m of markers()) pin(m.x, m.z, m.kind === 'chest' ? CHEST : VISIT, 'chest');
-    pin(HQ.x, HQ.z, GOLD, 'home');
+    for (const c of P.companies) pin(c.x, c.z, c.here ? GOLD : (c.color || GOLD), 'office');
+    if (P.home) pin(P.home.x, P.home.z, HOME, 'home');
 
     // the CEO: an arrow in the middle, always pointing up (the map turns instead)
     g.save(); g.translate(SIZE / 2, SIZE / 2);
@@ -135,12 +147,17 @@ export function createMinimap({ city, camera, player, isOutdoors, uiBusy, marker
     let best = null, bd = Infinity;
     for (const m of markers()) { const d = Math.hypot(m.x - me.x, m.z - me.z); if (d < bd) { bd = d; best = m; } }
     if (best) mark(best.x, best.z, best.kind === 'chest' ? CHEST : VISIT, true);
-    mark(HQ.x, HQ.z, GOLD, false);
+    // the company you're with (or the nearest), and home
+    const P = where(), dist = (o) => Math.hypot(o.x - me.x, o.z - me.z);
+    const co = P.companies.find((c) => c.here) || P.companies.slice().sort((a, b) => dist(a) - dist(b))[0];
+    if (co) mark(co.x, co.z, GOLD, false);
+    if (P.home) mark(P.home.x, P.home.z, HOME, false);
     // the centre line
     s.fillStyle = GOLD; s.fillRect(STRIP_W / 2 - 1, 22, 2, 18);
-    const dh = Math.round(Math.hypot(HQ.x - me.x, HQ.z - me.z));
     const dc = best ? Math.round(bd) : null;
-    home.innerHTML = `<span class="cc-hq">${t('Công ty')} <b>${dh} m</b></span>${dc != null ? `<span class="cc-chest">${t('Rương gần nhất')} <b>${dc} m</b></span>` : ''}`;
+    home.innerHTML = (co ? `<span class="cc-hq">${esc(co.name)} <b>${Math.round(dist(co))} m</b></span>` : '')
+      + (P.home ? `<span class="cc-home-d">${t('Nhà')} <b>${Math.round(dist(P.home))} m</b></span>` : '')
+      + (dc != null ? `<span class="cc-chest">${t('Rương gần nhất')} <b>${dc} m</b></span>` : '');
   }
 
   return {

@@ -41,6 +41,7 @@ export async function install(host) {
   host.onKey((e) => (!street.driving && e.code === 'KeyF' && !e.repeat && quests.open()) || street.key(e));
   // the way around: a minimap that turns with the view, a compass across the top
   const minimap = createMinimap({ city: host.city, camera: host.camera, player: host.player, isOutdoors: () => host.isOutdoors(),
+    places: host.companies ? () => ({ companies: host.companies(), home: host.home?.() || null }) : null,
     uiBusy: () => host.uiBusy?.() ?? false, markers: () => quests.markers() });
   host.onFrame((dt) => minimap.update(dt));
   host.onEvent('lift', () => quests.report({ lift: 1 }));
