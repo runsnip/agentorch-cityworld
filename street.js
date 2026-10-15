@@ -362,6 +362,7 @@ export function createStreet(host) {
 
   // ---- what is in front of a car: the distance to it along the lane, or Infinity
   const others = [];
+  const roadUsers = [];   // more traffic from other modules (street life): () => [{ pos, r, hit?(byTheCEO) }]
   function aheadOf(car, fwd) {
     const p = car.group.position, right = new THREE.Vector3(-fwd.z, 0, fwd.x);
     let near = Infinity;
@@ -489,6 +490,12 @@ export function createStreet(host) {
         if (o.ai) { o.stopFor = 4; o.speed = 0; if (mine && honk <= 0) { sfx('horn'); sfx('bump_car'); honk = 1.5; } }
       }
     }
+    // other road users (motorbikes…): pushed apart, and they stop
+    for (const fn of roadUsers) for (const o of fn()) {
+      const d = o.pos.clone().sub(p); d.y = 0;
+      const dist = d.length(), reach = o.r + 1.0;
+      if (dist < reach && dist > 1e-3) { p.addScaledVector(d.normalize(), -(reach - dist) * 0.6); hit = true; o.hit?.(mine); }
+    }
     if (hit && Math.abs(car.speed) > 2) car.speed *= mine ? -0.25 : 0;
     // people step aside
     for (const pp of people) outOfCar(pp.char.root.position, car, 0.45);
@@ -498,6 +505,7 @@ export function createStreet(host) {
     others.length = 0;
     for (const c of cars) others.push({ ref: c, pos: c.group.position, r: 1.2 });
     if (!drive) others.push({ ref: null, pos: player.root.position, r: 0.4 });
+    for (const fn of roadUsers) for (const o of fn()) others.push({ ref: null, pos: o.pos, r: o.r });
     for (const p of people) others.push({ ref: null, pos: p.char.root.position, r: 0.4 });
     const aide = host.companion?.();   // the assistant on foot (an older app doesn't say)
     if (aide?.visible && !drive) others.push({ ref: null, pos: aide.position, r: 0.4 });
@@ -576,7 +584,11 @@ export function createStreet(host) {
   }
   const pick = (list) => list[Math.floor(Math.random() * list.length)];
   const OUCH = { lamp: [t('Ui da!'), t('Cột đèn ở đâu ra vậy…'), t('Á, đầu tôi!')], tree: [t('Ui!'), t('Cây này mọc hồi nào?'), t('Á!')],
-    building: [t('Ối!'), t('Tường cứng thật…')], car: [t('Ui, xe ai đậu đây!'), t('Á!')] };
+    building: [t('Ối!'), t('Tường cứng thật…')], car: [t('Ui, xe ai đậu đây!'), t('Á!')],
+    bike: [t('Ui, xe ai dựng chắn lối vậy!'), t('Á, cái gương xe!'), t('Vỉa hè hay bãi giữ xe đây trời…')],
+    stall: [t('Ối, xin lỗi cô!'), t('Suýt đổ nồi nước dùng…'), t('Á, cái ghế nhựa!'), t('Chật quá đi không nổi…')],
+    market: [t('Chen chúc quá…'), t('Ui, rổ hàng của ai đây!'), t('Xin lỗi, cho qua với!')] };
+  const BUMP_SOUND = { bike: 'bump_car', stall: 'bump_building', market: 'bump_person' };
   let shake = 0, stunned = 0, lastOuch = 0;
   const knock = (dir, m) => { const p = player.root.position; p.addScaledVector(dir, -m); host.collide(p, 0.3); };
   host.onEvent('bump', ({ kind, running, dir }) => {
@@ -587,7 +599,7 @@ export function createStreet(host) {
     shake = 0.35; stunned = 0.45;
     player.keys.clear();
     if (now - lastOuch > 1500) { lastOuch = now; pop(pick(OUCH[kind] || OUCH.building), () => player.root.position); }
-    sfx(`bump_${kind}`);
+    sfx(BUMP_SOUND[kind] || `bump_${kind}`);
     host.track?.('city_bump', { kind });
   });
   // people: they don't let you walk through them; run into one and they stagger and tell you about it
@@ -631,6 +643,10 @@ export function createStreet(host) {
 
   return {
     get driving() { return !!drive; },
+    // for the street life: the cars on the road, a word over someone, and more road users the cars stop for
+    get cars() { return cars; },
+    pop, pick,
+    addRoadUsers(fn) { roadUsers.push(fn); },
     update(dt) {
       honk -= dt;
       updatePops(dt);

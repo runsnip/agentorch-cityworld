@@ -14,6 +14,7 @@ if (lang !== 'vi') {
 const { createCityQuests } = await import('./quests.js');
 const { createBagTab } = await import('./bag.js');
 const { createStreet } = await import('./street.js');
+const { createStreetLife } = await import('./streetlife.js');
 const { createMinimap } = await import('./minimap.js');
 
 export async function install(host) {
@@ -26,6 +27,10 @@ export async function install(host) {
   // the streets: cars in their lanes, people on the sidewalks, a car to drive
   const street = createStreet(host);
   host.onFrame((dt) => street.update(dt));
+
+  // everyday street life in the way: motorbikes, parked bikes, street food, vendors, a market, xe ôm
+  const life = createStreetLife(host, street);
+  host.onFrame((dt) => life.update(dt));
 
   // walking outdoors counts for the quests, driving doesn't
   const quests = createCityQuests({ scene: host.scene, city: host.city, call: host.callPy, player: host.player, isOutdoors: () => host.isOutdoors() && !street.driving, track: host.track, audio: host.audio, usable: host.usable });
