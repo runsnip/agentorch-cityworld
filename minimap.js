@@ -4,16 +4,19 @@
 //
 // createMinimap({ city, camera, player, isOutdoors, uiBusy, markers, places }) → { update(dt) }
 //   places() → { companies: [{ name, color, x, z, here }], home: { x, z } | null } (an older app: just its one company)
-//   markers() → [{ kind: 'chest' | 'visit', x, z }]
+//   markers() → [{ kind: 'chest' | 'visit' | 'pet' | 'thief', x, z }]
+//   alerts() → names of the companies whose approvals are waiting on the CEO (their pins pulse)
 
 import { t } from '/i18n.js';
 
 const SIZE = 196, R = SIZE / 2 - 6;      // css px; R: the map's radius inside its rim
 const SCALE = 0.85;                      // px per metre → about 110 m to the rim
 const STRIP_W = 460, STRIP_H = 46, FOV = Math.PI * 0.75;   // the compass shows 135° across
-const GOLD = '#d9b26f', CHEST = '#ffcf4a', VISIT = '#4fc3ff', HOME = '#7fd38a';
+const GOLD = '#d9b26f', CHEST = '#ffcf4a', VISIT = '#4fc3ff', HOME = '#7fd38a', PET = '#ff9f43', THIEF = '#ff3b3b';
+const COLOR = { chest: CHEST, visit: VISIT, pet: PET, thief: THIEF };
+const isChest = (m) => m.kind === 'chest' || m.kind === 'visit';
 
-export function createMinimap({ city, camera, player, isOutdoors, uiBusy, markers, places = null }) {
+export function createMinimap({ city, camera, player, isOutdoors, uiBusy, markers, places = null, alerts = () => [] }) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const wrap = document.createElement('div'); wrap.id = 'city-minimap'; wrap.className = 'hidden';
   const map = document.createElement('canvas'); map.width = map.height = SIZE * dpr;
@@ -88,6 +91,13 @@ export function createMinimap({ city, camera, player, isOutdoors, uiBusy, marker
       } else if (glyph === 'home') {
         g.beginPath(); g.moveTo(0, -9); g.lineTo(9, -1); g.lineTo(6, -1); g.lineTo(6, 8); g.lineTo(-6, 8); g.lineTo(-6, -1); g.lineTo(-9, -1); g.closePath();
         g.stroke(); g.fill();
+      } else if (glyph === 'pet') {   // a paw
+        g.lineWidth = 1.5;
+        g.beginPath(); g.ellipse(0, 2, 4.5, 3.6, 0, 0, Math.PI * 2); g.stroke(); g.fill();
+        for (const [x, y] of [[-4.5, -3], [-1.5, -5.5], [1.5, -5.5], [4.5, -3]]) { g.beginPath(); g.arc(x, y, 1.8, 0, Math.PI * 2); g.stroke(); g.fill(); }
+      } else if (glyph === 'thief') {   // a red diamond with a ring
+        g.beginPath(); g.moveTo(0, -7); g.lineTo(6, 0); g.lineTo(0, 7); g.lineTo(-6, 0); g.closePath(); g.stroke(); g.fill();
+        g.beginPath(); g.arc(0, 0, 10 + Math.sin(performance.now() / 150) * 2, 0, Math.PI * 2); g.strokeStyle = color; g.lineWidth = 2; g.stroke();
       } else {
         g.lineWidth = 1.5;   // a chest: small, so a few close together don't cover the streets
         g.beginPath(); g.rect(-3.5, -2, 7, 5); g.stroke(); g.fill();
@@ -100,8 +110,19 @@ export function createMinimap({ city, camera, player, isOutdoors, uiBusy, marker
       }
       g.restore();
     };
-    for (const m of markers()) pin(m.x, m.z, m.kind === 'chest' ? CHEST : VISIT, 'chest');
-    for (const c of P.companies) pin(c.x, c.z, c.here ? GOLD : (c.color || GOLD), 'office');
+    const ring = new Set(alerts());
+    for (const m of markers()) pin(m.x, m.z, COLOR[m.kind] || VISIT, isChest(m) ? 'chest' : m.kind);
+    for (const c of P.companies) {
+      if (ring.has(c.name)) {   // approvals waiting on the CEO: a ring pulsing round its pin
+        const dx = (c.x - me.x) * SCALE, dz = (c.z - me.z) * SCALE;
+        let px = dx * Math.cos(-hd) - dz * Math.sin(-hd), py = dx * Math.sin(-hd) + dz * Math.cos(-hd);
+        const d = Math.hypot(px, py); if (d > R - 10) { px *= (R - 10) / d; py *= (R - 10) / d; }
+        const k = (performance.now() / 900) % 1;
+        g.beginPath(); g.arc(SIZE / 2 + px, SIZE / 2 + py, 8 + k * 14, 0, Math.PI * 2);
+        g.strokeStyle = `rgba(255,90,70,${1 - k})`; g.lineWidth = 3; g.stroke();
+      }
+      pin(c.x, c.z, c.here ? GOLD : (c.color || GOLD), 'office');
+    }
     if (P.home) pin(P.home.x, P.home.z, HOME, 'home');
 
     // the CEO: an arrow in the middle, always pointing up (the map turns instead)
@@ -145,8 +166,18 @@ export function createMinimap({ city, camera, player, isOutdoors, uiBusy, marker
       if (under) { s.fillRect(px - 5, 2, 10, 4); }
     };
     let best = null, bd = Infinity;
-    for (const m of markers()) { const d = Math.hypot(m.x - me.x, m.z - me.z); if (d < bd) { bd = d; best = m; } }
+    const all = markers();
+    for (const m of all) { if (!isChest(m)) continue; const d = Math.hypot(m.x - me.x, m.z - me.z); if (d < bd) { bd = d; best = m; } }
     if (best) mark(best.x, best.z, best.kind === 'chest' ? CHEST : VISIT, true);
+    // a lost pet's last-seen spot, a fleeing thief
+    let extra = '';
+    for (const m of all) {
+      if (isChest(m)) continue;
+      mark(m.x, m.z, COLOR[m.kind], true);
+      const d = Math.round(Math.hypot(m.x - me.x, m.z - me.z));
+      extra += m.kind === 'pet' ? `<span class="cc-pet">${t('{pet} thấy lần cuối', { pet: esc(m.name || '') })} <b>${d} m</b></span>`
+        : `<span class="cc-thief">${t('Kẻ gian')} <b>${d} m</b></span>`;
+    }
     // the company you're with (or the nearest), and home
     const P = where(), dist = (o) => Math.hypot(o.x - me.x, o.z - me.z);
     const co = P.companies.find((c) => c.here) || P.companies.slice().sort((a, b) => dist(a) - dist(b))[0];
@@ -157,7 +188,7 @@ export function createMinimap({ city, camera, player, isOutdoors, uiBusy, marker
     const dc = best ? Math.round(bd) : null;
     home.innerHTML = (co ? `<span class="cc-hq">${esc(co.name)} <b>${Math.round(dist(co))} m</b></span>` : '')
       + (P.home ? `<span class="cc-home-d">${t('Nhà')} <b>${Math.round(dist(P.home))} m</b></span>` : '')
-      + (dc != null ? `<span class="cc-chest">${t('Rương gần nhất')} <b>${dc} m</b></span>` : '');
+      + (dc != null ? `<span class="cc-chest">${t('Rương gần nhất')} <b>${dc} m</b></span>` : '') + extra;
   }
 
   return {

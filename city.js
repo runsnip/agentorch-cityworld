@@ -16,6 +16,7 @@ const { createBagTab } = await import('./bag.js');
 const { createStreet } = await import('./street.js');
 const { createStreetLife } = await import('./streetlife.js');
 const { createMinimap } = await import('./minimap.js');
+const { createSurvival } = await import('./survival.js');
 
 export async function install(host) {
   const css = document.createElement('link');
@@ -37,12 +38,15 @@ export async function install(host) {
   host.on('city', (m) => quests.onState(m));
   host.on('city_reward', (m) => quests.onReward(m));
   host.onFrame((dt) => quests.update(dt));
-  host.onHint(() => (street.driving ? '' : quests.hint ? `<kbd>F</kbd> ${quests.hint}` : street.hint()));
-  host.onKey((e) => (!street.driving && e.code === 'KeyF' && !e.repeat && quests.open()) || street.key(e));
+  // the city's dangers: a bag snatcher, a pickpocket, the company's dog wandering off, the sun, the office calling
+  const survival = createSurvival(host, street, life);
+  host.onFrame((dt) => survival.update(dt));
+  host.onHint(() => (street.driving ? '' : quests.hint ? `<kbd>F</kbd> ${quests.hint}` : survival.hint() ? `<kbd>F</kbd> ${survival.hint()}` : street.hint()));
+  host.onKey((e) => (!street.driving && e.code === 'KeyF' && !e.repeat && quests.open()) || survival.key(e) || street.key(e));
   // the way around: a minimap that turns with the view, a compass across the top
   const minimap = createMinimap({ city: host.city, camera: host.camera, player: host.player, isOutdoors: () => host.isOutdoors(),
     places: host.companies ? () => ({ companies: host.companies(), home: host.home?.() || null }) : null,
-    uiBusy: () => host.uiBusy?.() ?? false, markers: () => quests.markers() });
+    uiBusy: () => host.uiBusy?.() ?? false, markers: () => [...quests.markers(), ...survival.markers()], alerts: () => survival.alerts() });
   host.onFrame((dt) => minimap.update(dt));
   host.onEvent('lift', () => quests.report({ lift: 1 }));
   host.onEvent('reception', () => quests.report({ reception: 1 }));

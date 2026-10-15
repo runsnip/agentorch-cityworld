@@ -50,7 +50,7 @@ const rod = (a, b, r, color, n = 6) => {
   return part(g, color, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
 };
 
-const MAT = {
+export const MAT = {
   vc: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.12 }),
   vc2: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.05, side: THREE.DoubleSide }),   // cloth, canopies
   paint: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.32, metalness: 0.45 }),                          // bikes: colour per instance
@@ -60,13 +60,13 @@ const MAT = {
   steam: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false }),
   straw: new THREE.MeshStandardMaterial({ color: 0xd8c48c, roughness: 0.9 }),
 };
-const BIKE_PAINT = [0xc81e1e, 0x151515, 0xf2f2f2, 0x1d4f9a, 0xa7acb3, 0x6e1420, 0x2f6b3c, 0xe0b81e, 0x4a2a6a];
+export const BIKE_PAINT = [0xc81e1e, 0x151515, 0xf2f2f2, 0x1d4f9a, 0xa7acb3, 0x6e1420, 0x2f6b3c, 0xe0b81e, 0x4a2a6a];
 const PLASTIC = [0xd32b2b, 0x2a6fd1, 0xd32b2b, 0x2fa44f, 0xe8d23a];
 const TARPS = [0x2f6fd8, 0xd8402f, 0xf08a22, 0x2fa45a, 0x7a3fb0, 0x3fb6c9];
-const HELMETS = [0xf4f4f4, 0xc8241f, 0x151515, 0xf2c21b, 0x2457b8, 0xe86fa4, 0x3d8a3f];
+export const HELMETS = [0xf4f4f4, 0xc8241f, 0x151515, 0xf2c21b, 0x2457b8, 0xe86fa4, 0x3d8a3f];
 
 // A motorbike, facing +x, wheels on the ground: the body (one paint) and everything else
-const BIKE = (() => {
+export const BIKE = (() => {
   const W = 0xffffff;
   const paint = merge([
     part(extrude([[-0.9, 0.6], [-0.82, 0.48], [-0.25, 0.43], [0.22, 0.38], [0.3, 0.42], [0.25, 0.5], [-0.15, 0.52], [-0.3, 0.7], [-0.88, 0.7]], 0.34), W),   // floorboard and the body under the seat
@@ -92,9 +92,9 @@ const BIKE = (() => {
   return { paint, rest };
 })();
 // on a bike, the rider's root: hips (0.6 above it) on the seat
-const RIDER_AT = new THREE.Vector3(-0.42, 0.21, 0);
+export const RIDER_AT = new THREE.Vector3(-0.42, 0.21, 0);
 
-const HELMET = merge([
+export const HELMET = merge([
   part(new THREE.SphereGeometry(0.135, 16, 9, 0, Math.PI * 2, 0, Math.PI * 0.56), 0xffffff),
   part(box(0.04, 0.025, 0.2), 0xffffff, 0.12, 0.0, 0),   // the peak
 ]);
@@ -816,6 +816,9 @@ export function createStreetLife(host, street) {
   // ---- the frame: squares past the haze hidden, small details only near; people and traffic
   let t0 = 0;
   return {
+    // for the city's dangers (survival.js): where people crowd — the stalls and the market
+    get crowds() { return [...stalls.filter((s) => s.seats.length).map((s) => s.at), ...(market ? [new THREE.Vector3(market.park.x, 0, market.park.z)] : [])]; },
+    get marketArea() { return market ? { x: market.park.x, z: market.park.z, half: market.park.half } : null; },
     update(dt) {
       // steam off the CEO's bowl: puffs rise, swell and fade, one after another
       for (const b of bowls) for (const p of b.userData.steam || []) {
