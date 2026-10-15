@@ -565,30 +565,45 @@ export function createStreetLife(host, street) {
   if (market) market.stalls.forEach((s, k) => { if (k % 2 === 0) seatsAll.push({ key: `m${k}`, x: s.seller.x, z: s.seller.z, face: s.face, sit: false, y: SLAB }); });
   // the stools left empty are the CEO's to sit on (F, host.addSeats): they order the stall's dish and a bowl comes
   // out to the table in front of them, steaming; it's cleared when they get up
-  const bowls = [];
+  const bowls = [], orders = [];   // orders: each stool's order waiting on the app's payment
   if (host.addSeats) {
     const mine = [];
     stalls.forEach((st, si) => st.seats.forEach((sp, k) => {
       if ((si * 7 + k) % 3 !== 1) return;
       const fx = Math.sin(sp.face), fz = Math.cos(sp.face);
-      let bowl = null, timer = 0;
+      let bowl = null, timer = 0, order = null;
       mine.push({
         pos: new THREE.Vector3(sp.x, SLAB + 0.41 - 0.505, sp.z), approach: new THREE.Vector3(sp.x - fx * 0.95, 0, sp.z - fz * 0.95), facing: sp.face,
         label: t('Ngồi ăn <b>{dish}</b>', { dish: st.dish }),
         onSit() {
           street.pop(street.pick([t('Cho một phần {dish} nha!', { dish: st.dish }), t('Một phần {dish}, không hành nha.', { dish: st.dish }), t('Chủ quán ơi, {dish}!', { dish: st.dish })]), () => host.player.root.position);
-          timer = setTimeout(() => {
-            street.pop(street.pick([t('Có liền nè!'), t('Nóng hổi đây!'), t('Ăn ngon nha!')]), () => new THREE.Vector3(st.at.x, 0, st.at.z), 'them');
-            bowl = makeServing(st.dish); bowl.position.set(sp.x + fx * 0.36, SLAB + 0.537, sp.z + fz * 0.36); bowl.rotation.y = sp.face;
-            scene.add(bowl); bowls.push(bowl); host.audio?.sfx('drop');
-            // the CEO eats: chopsticks to a bowl or a plate; a glass or a bánh mì goes up to the mouth itself
-            const kind = { soup: 'soup', rice: 'rice', xoi: 'rice', banhmi: 'bread' }[SERVING[st.dish] || 'soup'] || 'drink';
-            host.playerEat?.({ at: bowl.position.clone(), kind, prop: kind === 'drink' || kind === 'bread' ? bowl : null });
-          }, 2200);
+          // pay first: the app charges the dish's price from the purse (cityBuy); the bowl comes only once it's paid
+          order = { dish: st.dish, serve: () => { timer = setTimeout(serve, 1600); } };
+          host.callPy?.('cityBuy', st.dish);
         },
-        onStand() { clearTimeout(timer); if (bowl) { bowl.removeFromParent(); bowls.splice(bowls.indexOf(bowl), 1); bowl.traverse((m) => m.geometry?.dispose()); bowl = null; } },
+        onStand() { order = null; clearTimeout(timer); if (bowl) { bowl.removeFromParent(); bowls.splice(bowls.indexOf(bowl), 1); bowl.traverse((m) => m.geometry?.dispose()); bowl = null; } },
       });
+      function serve() {
+        street.pop(street.pick([t('Có liền nè!'), t('Nóng hổi đây!'), t('Ăn ngon nha!')]), () => new THREE.Vector3(st.at.x, 0, st.at.z), 'them');
+        bowl = makeServing(st.dish); bowl.position.set(sp.x + fx * 0.36, SLAB + 0.537, sp.z + fz * 0.36); bowl.rotation.y = sp.face;
+        scene.add(bowl); bowls.push(bowl); host.audio?.sfx('drop');
+        // the CEO eats: chopsticks to a bowl or a plate; a glass or a bánh mì goes up to the mouth itself
+        const kind = { soup: 'soup', rice: 'rice', xoi: 'rice', banhmi: 'bread' }[SERVING[st.dish] || 'soup'] || 'drink';
+        host.playerEat?.({ at: bowl.position.clone(), kind, prop: kind === 'drink' || kind === 'bread' ? bowl : null });
+      }
+      orders.push({ get: () => order, clear: () => { order = null; }, at: () => new THREE.Vector3(st.at.x, 0, st.at.z) });
     }));
+    // the app's answer to an order: paid (the stall serves) or the purse is short (the vendor says so, nothing comes)
+    host.on?.('city_buy', (msg) => {
+      for (const o of orders) {
+        const ord = o.get();
+        if (!ord || ord.dish !== msg.dish) continue;
+        o.clear();
+        if (msg.ok) { street.pop(t('Trả {price} coin', { price: msg.price }), () => host.player.root.position); ord.serve(); }
+        else if (msg.reason === 'coins') street.pop(t('Thiếu coin rồi, món này {price} coin.', { price: msg.price }), o.at, 'them');
+        break;
+      }
+    });
     host.addSeats(mine);
   }
   const frustum = new THREE.Frustum(), _vp = new THREE.Matrix4(), _sph = new THREE.Sphere();

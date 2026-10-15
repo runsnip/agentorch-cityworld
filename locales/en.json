@@ -202,5 +202,7 @@
   "Trả tiền đây!": "Give me my money back!",
   "Hình như có ai đứng sát sau lưng…": "Someone's standing right behind me…",
   "Ai đứng sát quá vậy?": "Who's crowding me?"
- }
+ },
+  "Trả {price} coin": "Paid {price} coins",
+  "Thiếu coin rồi, món này {price} coin.": "Not enough coins — this one is {price} coins."
 }
