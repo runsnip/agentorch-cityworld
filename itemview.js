@@ -519,7 +519,40 @@ function treasure(K, gold) {
   return K.build();
 }
 
+// the mission book (the folded tracker's icon): leather covers over a block of pages, a rounded spine with raised
+// bands, brass corners and a label plate, a red ribbon marker hanging out below, a strap round the fore-edge to a buckle
+function questBook() {
+  const K = new Kit(), W = 1.05, H = 1.4, T = 0.3, C = 0.045;
+  const leather = std('#6b3a1f', { roughness: 0.75 }), dark = std('#4a2612', { roughness: 0.8 });
+  const brass = std('#d8a93b', { metalness: 1, roughness: 0.3, emissive: '#2a1800', emissiveIntensity: 0.3 });
+  const paper = std('#efe4c8', { roughness: 0.95 }), edge = std('#d6c79f', { roughness: 0.95 });
+  // pages, set back from the covers' edges, a few darker leaves on the fore-edge
+  K.add(paper, at(rbox(W - 0.07, H - 0.07, T - 2 * C, 0.012), 0.025, 0, 0));
+  for (let i = 1; i < 8; i++) K.add(edge, at(rbox(0.006, H - 0.09, 0.004, 0.002), W / 2 - 0.01, 0, -T / 2 + C + i * (T - 2 * C) / 8));
+  // the covers and the spine with its raised bands
+  for (const z of [-1, 1]) K.add(leather, at(rbox(W, H, C, 0.03), 0, 0, z * (T / 2 - C / 2)));
+  K.add(leather, at(cyl(T / 2, T / 2, H, 20), -W / 2 + 0.01, 0, 0));
+  for (const y of [-0.45, -0.15, 0.15, 0.45]) K.add(dark, at(cyl(T / 2 + 0.014, T / 2 + 0.014, 0.05, 20), -W / 2 + 0.01, y, 0));
+  // brass corners on the front cover, a framed label plate in the middle
+  for (const [sx, sy] of [[1, 1], [1, -1]]) {
+    const s = shape([[0, 0], [-0.18, 0], [0, -0.18]]);
+    K.add(brass, at(ext(s, 0.016, 0.004), sx * (W / 2 + 0.004), sy * (H / 2 + 0.004), T / 2 + 0.002, 0, 0, sy > 0 ? 0 : -PI / 2));
+  }
+  K.add(dark, at(rbox(0.62, 0.34, 0.02, 0.04), 0.05, 0.22, T / 2 + 0.006));
+  const frame = (w, h, r, b) => { const o = rrect(new THREE.Shape(), w, h, r); o.holes.push(rrect(new THREE.Path(), w - 2 * b, h - 2 * b, r * 0.7)); return o; };
+  K.add(brass, at(ext(frame(0.66, 0.38, 0.05, 0.04), 0.022, 0.005), 0.05, 0.22, T / 2 + 0.01));
+  for (const dx of [-0.2, 0, 0.2]) K.add(brass, at(rbox(0.13, 0.025, 0.012, 0.006), 0.05 + dx, 0.22 + (dx ? 0.04 : -0.02), T / 2 + 0.02));   // a few raised lines of title
+  // the ribbon marker: out of the top of the pages, down over the bottom edge
+  K.add(std('#b3202c', { roughness: 0.6 }), sweep([V3(0.2, H / 2 - 0.06, 0.02), V3(0.22, -H / 2 + 0.02, 0.03), V3(0.24, -H / 2 - 0.05, 0.05), V3(0.27, -H / 2 - 0.2, 0.08)], V3(1, 0, 0), 0.008, 0.05));
+  // a strap from the back cover round the fore-edge to a buckle on the front
+  K.add(dark, sweep([V3(W / 2 - 0.25, -0.15, -T / 2 - 0.006), V3(W / 2 + 0.02, -0.15, -T / 2 - 0.006), V3(W / 2 + 0.03, -0.15, 0), V3(W / 2 + 0.02, -0.15, T / 2 + 0.006), V3(W / 2 - 0.2, -0.15, T / 2 + 0.006)], V3(0, 1, 0), 0.014, 0.12));
+  K.add(brass, at(ext(frame(0.12, 0.16, 0.02, 0.025), 0.02, 0.005), W / 2 - 0.2, -0.15, T / 2 + 0.018));
+  K.add(brass, at(cylX(0.009, 0.1, 8), W / 2 - 0.2, -0.15, T / 2 + 0.03, 0, 0, PI / 2));
+  return K.build();
+}
+
 function build(item) {
+  if (item.kind === 'book') return questBook();
   if (item.kind === 'chest') return chest();
   if (item.kind === 'finish') return rifle(item);
   if (item.kind === 'outfit') return jacket(item);

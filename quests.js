@@ -154,13 +154,46 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
   tracker.id = 'city-tracker';
   tracker.className = 'hidden';
   document.body.append(tracker);
+  // the list follows the mouse held down on it, up and down; a drag isn't a click (no mission opens at the end of it)
+  let drag = null;
+  tracker.addEventListener('pointerdown', (e) => {
+    const list = e.target.closest?.('.ct-list');
+    if (!list || e.button !== 0) return;
+    drag = { y: e.clientY, top: list.scrollTop, moved: false };
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dy = e.clientY - drag.y, list = tracker.querySelector('.ct-list');
+    if (!drag.moved && Math.abs(dy) > 5) { drag.moved = true; tracker.classList.add('dragging'); }
+    if (drag.moved && list) list.scrollTop = drag.top - dy;
+  });
+  window.addEventListener('pointerup', () => {
+    if (!drag) return;
+    if (drag.moved) setTimeout(() => { drag = null; tracker.classList.remove('dragging'); }, 0);   // after the click it ends with
+    else drag = null;
+  });
+  tracker.addEventListener('click', (e) => { if (drag?.moved) { e.stopPropagation(); e.preventDefault(); } }, true);
   const RARITY_NAME = { common: t('Thường'), rare: t('Hiếm'), epic: t('Sử thi'), legendary: t('Huyền thoại') };
   const left = () => {
     const s = Math.max(0, Math.round(state.ends_at - Date.now() / 1000));
     return `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}`;
   };
+  // folded down to an icon (the mission book, today's count, a dot when a chest is ready to open); remembered on this machine
+  let folded = false, bookIcon = null;
+  try { folded = localStorage.getItem('city-tracker-folded') === '1'; } catch { /* not kept */ }
+  const fold = (on) => { folded = on; try { localStorage.setItem('city-tracker-folded', on ? '1' : '0'); } catch { /* not kept */ } audio?.sfx?.('click'); renderTracker(); };
   function renderTracker() {
     if (!state) return;
+    const done = state.quests.filter((q) => q.done).length, toOpen = state.quests.filter((q) => ready(q)).length;
+    tracker.classList.toggle('folded', folded);
+    if (folded) {
+      clockShown = left();
+      tracker.innerHTML = `<button class="ct-unfold" title="${t('Mở sổ nhiệm vụ')}"><span class="ct-book"></span><b>${done}/${state.quests.length}</b>${toOpen ? `<i class="ct-dot">${toOpen}</i>` : ''}</button>`;
+      bookIcon ||= itemCanvas({ kind: 'book', id: 'book' });
+      tracker.querySelector('.ct-book').append(bookIcon);
+      tracker.querySelector('.ct-unfold').onclick = () => fold(false);
+      return;
+    }
     clockShown = left();
     const chestsLeft = state.count - state.opened.length;
     // walking: what the app has counted plus the metres walked since the last report, so the bar moves as you go
@@ -171,7 +204,8 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
     const order = (q) => (ready(q) ? 0 : q.claimed ? 2 : 1);
     const quests = state.quests.map((q, i) => [q, i]).sort((a, b) => order(a[0]) - order(b[0]) || a[1] - b[1]).map(([q]) => q);
     const scrolled = tracker.querySelector('.ct-list')?.scrollTop || 0;
-    tracker.innerHTML = `<div class="ct-head"><small>${t('Nhiệm vụ hôm nay')} · ${state.quests.filter((q) => q.done).length}/${state.quests.length}</small><b class="ct-clock" title="${t('Hết ngày, nhiệm vụ chưa xong sẽ mất phần thưởng')}">${t('Còn {time}', { time: clockShown })}</b></div>
+    tracker.innerHTML = `<div class="ct-head"><small>${t('Nhiệm vụ hôm nay')} · ${done}/${state.quests.length}</small><b class="ct-clock" title="${t('Hết ngày, nhiệm vụ chưa xong sẽ mất phần thưởng')}">${t('Còn {time}', { time: clockShown })}</b><button class="ct-fold" title="${t('Thu gọn')}"></button></div>
+      ${toOpen > 1 ? `<button class="ct-claim-all">${t('Nhận tất cả ({n} rương)', { n: toOpen })}</button>` : ''}
       <div class="ct-list">${quests.map((q) => `<div class="ct-task r-${q.rarity}${q.done ? ' done' : ''}${detailId === q.id ? ' on' : ''}" data-q="${esc(q.id)}">
         <div class="ct-top"><span>${esc(q.name)}</span>${ready(q) ? `<button class="ct-claim" data-claim="${esc(q.id)}" title="${t('Mở rương nhận thưởng')}"></button>` : `<em class="ct-gift">${q.claimed ? '✓' : RARITY_NAME[q.rarity]}</em>`}</div>
         <div class="ct-bar"><i style="width:${Math.min(100, have(q) / q.target * 100)}%"></i></div>
@@ -179,6 +213,14 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       <div class="ct-row"><span class="ct-chest"></span>${t('Rương còn lại trên phố')}<em>${chestsLeft}/${state.count}</em></div>
       ${state.pending ? `<div class="ct-pending">${t('{n} phần thưởng đang chờ xác nhận', { n: state.pending })}</div>` : ''}`;
     tracker.querySelector('.ct-list').scrollTop = scrolled;
+    tracker.querySelector('.ct-fold').onclick = () => fold(true);
+    // every finished mission's chest at once: the app settles them together and the cards come as one spread
+    const all = tracker.querySelector('.ct-claim-all');
+    if (all) all.onclick = () => {
+      const ids = state.quests.filter((q) => ready(q) && !claiming.has(q.id)).map((q) => q.id);
+      if (!ids.length) return;
+      ids.forEach((id) => claiming.add(id)); audio?.sfx('chest'); call('cityClaimAll', JSON.stringify(ids)); renderTracker();
+    };
     tracker.querySelectorAll('[data-q]').forEach((el) => { el.onclick = () => showDetail(el.dataset.q); });
     // a finished mission's chest: opening it is what claims the reward (the app rolls it then)
     tracker.querySelectorAll('[data-claim]').forEach((el) => {
@@ -291,6 +333,30 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
   }
   card.addEventListener('pointerdown', () => card.classList.add('hidden'));
 
+  // ---- several rewards at once ('Nhận tất cả'): every card laid out, five to a row, turning over one after the other
+  const spread = document.createElement('div');
+  spread.id = 'reward-spread';
+  spread.className = 'hidden';
+  document.body.append(spread);
+  const RANK = { common: 0, rare: 1, epic: 2, legendary: 3 };
+  function showSpread(list) {
+    const best = list.reduce((a, r) => (RANK[r.item.rarity] > RANK[a] ? r.item.rarity : a), 'common');
+    const coins = list.reduce((n, r) => n + (r.item.kind === 'coins' ? r.item.amount || 0 : 0), 0);
+    spread.innerHTML = `<div class="rs-box"><div class="rs-head"><b>${t('Nhận {n} phần thưởng', { n: list.length })}</b>${coins ? `<em>+${coins} coin</em>` : ''}</div>
+      <div class="rs-grid">${list.map((r, i) => `<div class="rs-card r-${r.item.rarity}" style="animation-delay:${i * 0.09}s">
+        <small>${esc(r.source === 'chest' ? t('Mở rương') : r.name)}</small><span class="rc-rarity">${RARITY_NAME[r.item.rarity] || r.item.rarity}</span>
+        <div class="rs-icon"></div><b>${esc(t(r.item.name))}</b>${r.item.kind === 'coins' ? `<em>+${r.item.amount} coin</em>` : ''}</div>`).join('')}</div>
+      <div class="rs-foot"><span>${t('Tất cả đã cất vào Kho đồ')}</span><button class="rs-close">${t('Xong')}</button></div></div>`;
+    // the rarer ones keep turning; the rest rest at three-quarters (lighter with twenty on screen)
+    spread.querySelectorAll('.rs-icon').forEach((el, i) => el.append(itemCanvas(list[i].item, { spin: RANK[list[i].item.rarity] >= 2 })));
+    spread.classList.remove('hidden');
+    audio?.sfx('mission', { rarity: best });
+    if (coins) setTimeout(() => audio?.sfx('coin'), 700);
+    spread.querySelector('.rs-close').onclick = () => spread.classList.add('hidden');
+  }
+  spread.addEventListener('pointerdown', (e) => { if (e.target === spread) spread.classList.add('hidden'); });
+  window.addEventListener('keydown', (e) => { if (e.code === 'Escape' && !spread.classList.contains('hidden')) spread.classList.add('hidden'); });
+
   // ---- today's chests, from the day's seed (the same places for the whole day)
   function placeChests() {
     for (const m of chests.values()) group.remove(m);
@@ -366,8 +432,8 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       for (const r of msg.rewards || []) if (r.source !== 'chest') track('city_mission_done', { rarity: r.item.rarity });
       // several at once (a chest that also finishes a mission): one after the other, numbered
       const list = msg.rewards || [];
-      list.forEach((r, i) => setTimeout(() => showCard(r.item, r.source === 'chest' ? t('Mở rương') : r.name,
-        { mission: r.source !== 'chest', n: i + 1, of: list.length }), i * 4800));
+      if (list.length > 1) showSpread(list);   // laid out together, five to a row
+      else list.forEach((r) => showCard(r.item, r.source === 'chest' ? t('Mở rương') : r.name, { mission: r.source !== 'chest' }));
       if (msg.rejected) onHint(t('{n} phần thưởng không khớp với nhiệm vụ gốc nên bị huỷ.', { n: msg.rejected }));
       if (msg.offline && !(msg.rewards || []).length) onHint(t('Chưa kết nối được kho nhiệm vụ: phần thưởng sẽ được trao khi có mạng.'));
     },
