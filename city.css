@@ -39,6 +39,8 @@
   border-bottom: 1px solid rgba(217,178,111,.3); }
 .ct-head small { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: #d9b26f; }
 .ct-clock { font: 800 12px ui-monospace, Menlo, monospace; color: #ff9f6b; }
+.ct-list { max-height: calc(100vh - 300px); overflow-y: auto; margin-right: -6px; padding-right: 6px; pointer-events: auto; overscroll-behavior: contain; }
+.ct-list::-webkit-scrollbar { width: 4px; } .ct-list::-webkit-scrollbar-thumb { background: rgba(217,178,111,.45); }
 .ct-task { --rc: #9aa6b8; position: relative; margin: 0 0 8px; padding: 6px 8px 6px 10px; background: rgba(255,255,255,.04);
   border-left: 3px solid var(--rc); }
 .ct-task.r-rare { --rc: #4fa3ff; } .ct-task.r-epic { --rc: #b06cff; } .ct-task.r-legendary { --rc: #f3c14b; }

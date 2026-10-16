@@ -166,13 +166,19 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
     // walking: what the app has counted plus the metres walked since the last report, so the bar moves as you go
     const have = (q) => (q.goal === 'walk' && !q.done ? Math.min(q.target, q.progress + Math.floor(inFlight + sinceReport)) : q.progress);
     shownWalk = Math.floor(sinceReport);
-    tracker.innerHTML = `<div class="ct-head"><small>${t('Nhiệm vụ hôm nay')}</small><b class="ct-clock" title="${t('Hết ngày, nhiệm vụ chưa xong sẽ mất phần thưởng')}">${t('Còn {time}', { time: clockShown })}</b></div>
-      ${state.quests.map((q) => `<div class="ct-task r-${q.rarity}${q.done ? ' done' : ''}${detailId === q.id ? ' on' : ''}" data-q="${esc(q.id)}">
+    // many a day: a chest to open first, then what's under way, what's been claimed last; the list scrolls (and keeps
+    // its place while it's redrawn)
+    const order = (q) => (ready(q) ? 0 : q.claimed ? 2 : 1);
+    const quests = state.quests.map((q, i) => [q, i]).sort((a, b) => order(a[0]) - order(b[0]) || a[1] - b[1]).map(([q]) => q);
+    const scrolled = tracker.querySelector('.ct-list')?.scrollTop || 0;
+    tracker.innerHTML = `<div class="ct-head"><small>${t('Nhiệm vụ hôm nay')} · ${state.quests.filter((q) => q.done).length}/${state.quests.length}</small><b class="ct-clock" title="${t('Hết ngày, nhiệm vụ chưa xong sẽ mất phần thưởng')}">${t('Còn {time}', { time: clockShown })}</b></div>
+      <div class="ct-list">${quests.map((q) => `<div class="ct-task r-${q.rarity}${q.done ? ' done' : ''}${detailId === q.id ? ' on' : ''}" data-q="${esc(q.id)}">
         <div class="ct-top"><span>${esc(q.name)}</span>${ready(q) ? `<button class="ct-claim" data-claim="${esc(q.id)}" title="${t('Mở rương nhận thưởng')}"></button>` : `<em class="ct-gift">${q.claimed ? '✓' : RARITY_NAME[q.rarity]}</em>`}</div>
         <div class="ct-bar"><i style="width:${Math.min(100, have(q) / q.target * 100)}%"></i></div>
-        <small>${q.claimed ? t('Đã nhận') : claiming.has(q.id) ? t('Đang mở rương…') : q.done ? t('Xong! Bấm rương để nhận thưởng') : count(q, have(q))}</small></div>`).join('')}
+        <small>${q.claimed ? t('Đã nhận') : claiming.has(q.id) ? t('Đang mở rương…') : q.done ? t('Xong! Bấm rương để nhận thưởng') : count(q, have(q))}</small></div>`).join('')}</div>
       <div class="ct-row"><span class="ct-chest"></span>${t('Rương còn lại trên phố')}<em>${chestsLeft}/${state.count}</em></div>
       ${state.pending ? `<div class="ct-pending">${t('{n} phần thưởng đang chờ xác nhận', { n: state.pending })}</div>` : ''}`;
+    tracker.querySelector('.ct-list').scrollTop = scrolled;
     tracker.querySelectorAll('[data-q]').forEach((el) => { el.onclick = () => showDetail(el.dataset.q); });
     // a finished mission's chest: opening it is what claims the reward (the app rolls it then)
     tracker.querySelectorAll('[data-claim]').forEach((el) => {
