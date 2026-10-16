@@ -10,7 +10,7 @@
 // createStreetLife(host, street) → { update(dt) }
 
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { t } from '/i18n.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -70,34 +70,220 @@ const PLASTIC = [0xd32b2b, 0x2a6fd1, 0xd32b2b, 0x2fa44f, 0xe8d23a];
 const TARPS = [0x2f6fd8, 0xd8402f, 0xf08a22, 0x2fa45a, 0x7a3fb0, 0x3fb6c9];
 export const HELMETS = [0xf4f4f4, 0xc8241f, 0x151515, 0xf2c21b, 0x2457b8, 0xe86fa4, 0x3d8a3f];
 
-// A motorbike, facing +x, wheels on the ground: the body (one paint) and everything else
-export const BIKE = (() => {
-  const W = 0xffffff;
+// A motorbike, facing +x, wheels on the ground: the body panels (one paint, modelled white) and everything else.
+// A step-through city scooter: a curved front apron with the headlight and the turn signals, a handlebar cover
+// with the speedo, the mirrors on stems, a flat floorboard with a ribbed rubber mat, side panels swelling under a
+// padded seat (piping along its edges), a grab rail, the tail light and the plate on its flap. Under it the swing-arm
+// engine (finned cylinder, belt case), a shock with its coil spring, the exhaust with a heat shield, both stands
+// folded, the passenger's pegs; telescopic forks with rubber boots, a disc and caliper in front, a drum at the back,
+// alloy wheels with six spokes and tyres with a rounded, treaded section.
+function makeBike(lo = 0) {   // lo: 1 the far version, the same shapes in far fewer triangles without the small parts; 2 the distant one
+  const W = 0xffffff, PI = Math.PI, FX = 0.66, RX = -0.66, AY = 0.3;   // the axles
+  const q = (a, b, c = b) => [a, b, c][lo], near = (list) => (lo ? [] : list), mid = (list) => (lo > 1 ? [] : list);
+  const V3 = (a) => new THREE.Vector3(a[0], a[1], a[2]), len3 = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  const smoothstep = (a, b, v) => { const k = clamp((v - a) / (b - a), 0, 1); return k * k * (3 - 2 * k); };
+  // shade smooth across gentle bends, keep the folds (toCreasedNormals hashes positions to 1 cm: work at 100x)
+  const soft = (g, crease = 0.85) => {
+    g = g.index ? g.toNonIndexed() : g; g.deleteAttribute('normal'); g.scale(100, 100, 100);
+    return toCreasedNormals(g, crease).scale(0.01, 0.01, 0.01);
+  };
+  // a solid with rolled edges: a smooth closed outline (x, y) extruded `width` across z, centred
+  const slab = (pts, width, bev, n = 32, segs = 2, smooth = true) => {
+    const ring = smooth ? new THREE.CatmullRomCurve3(pts.map(([x, y]) => new THREE.Vector3(x, y, 0)), true, 'centripetal').getSpacedPoints(q(n, Math.max(8, Math.round(n * 0.45)), Math.max(6, Math.round(n * 0.25)))).slice(0, -1) : pts.map(([x, y]) => ({ x, y }));
+    const sh = new THREE.Shape(ring.map((v) => new THREE.Vector2(v.x, v.y)));
+    if (bev < q(0, 0.015, 0.03)) return new THREE.ExtrudeGeometry(sh, { depth: width, bevelEnabled: false, curveSegments: 8 }).translate(0, 0, -width / 2);   // far: small edges unrounded
+    return new THREE.ExtrudeGeometry(sh, { depth: width - 2 * bev, bevelEnabled: true, bevelThickness: bev, bevelSize: bev, bevelOffset: -bev, bevelSegments: lo ? 1 : segs, curveSegments: 8 })
+      .translate(0, 0, -(width - 2 * bev) / 2);
+  };
+  // reshape vertex by vertex, then shade
+  const warp = (g, fn, crease) => { const p = g.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i < p.count; i++) { fn(v.fromBufferAttribute(p, i)); p.setXYZ(i, v.x, v.y, v.z); }
+    return soft(g, crease); };
+  // a closed ring profile [[r, y], ...] lathed round y
+  const ring = (pts, n) => shell([...pts, pts[0]], n);
+  // a geometry built up the y axis from 0, laid along a → b
+  const lay = (g, a, b) => { const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize();
+    return g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d)).translate(a[0], a[1], a[2]); };
+  const cylUp = (rb, rt, h, n = 10) => new THREE.CylinderGeometry(rt, rb, h, n).translate(0, h / 2, 0);
+  const tube = (pts, r, color, n = 24, sides = 6) => part(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map(V3), false, 'centripetal'), q(n, Math.ceil(n / 2), Math.ceil(n / 3)), r, q(sides, 4, 3), false), color);
+  // an arc of a mudguard round an axle: angles a0..a1 (0 = forwards), radii r0..r1, width w
+  const arc = (a0, a1, r0, r1, w) => {
+    const sh = new THREE.Shape(); sh.absarc(0, 0, r1, a0, a1, false); sh.absarc(0, 0, r0, a1, a0, true);
+    return soft(new THREE.ExtrudeGeometry(sh, { depth: w - 0.012, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.006, bevelOffset: -0.006, bevelSegments: q(2, 1), curveSegments: q(9, 5) }).translate(0, 0, -(w - 0.012) / 2));
+  };
+  // a lens or lamp face drawn in (z, y), its depth along x
+  const lens = (pts, depth, bev, n = 12) => slab(pts, depth, bev, n, 1, n > 0).rotateY(PI / 2);
+
+  // ---- wheels
+  const TYRE = (() => {   // a rounded section with a groove round the crown, lathed; the tread blocks staggered either side
+    const half = lo ? [[0.205, 0.042], [0.262, 0.057], [0.294, 0.04], [0.3, 0.012], [0.3, 0]] : [[0.205, 0.042], [0.25, 0.057], [0.28, 0.053], [0.294, 0.04], [0.3, 0.018], [0.295, 0.006], [0.295, 0]];
+    const prof = [...half, ...half.slice(0, -1).reverse().map(([r, y]) => [r, -y])];
+    const N = q(28, 12, 8), g = ring(prof, N), p = g.attributes.position, P = prof.length + 1;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i), r = Math.hypot(x, z), col = Math.floor(i / P);
+      if (lo || r < 0.2975 || (col + (y > 0 ? 1 : 0)) % 2) continue;
+      const k = (r - 0.0065) / r; p.setX(i, x * k); p.setZ(i, z * k);
+    }
+    g.computeVertexNormals();
+    return g.rotateX(PI / 2);
+  })();
+  const RIM = lo ? ring([[0.17, 0.038], [0.215, 0.05], [0.2, 0], [0.215, -0.05], [0.17, -0.038]], q(0, 10, 8)).rotateX(PI / 2) : ring([[0.172, 0.036], [0.198, 0.04], [0.212, 0.05], [0.217, 0.046], [0.207, 0.036], [0.2, 0], [0.207, -0.036], [0.217, -0.046], [0.212, -0.05], [0.198, -0.04], [0.172, -0.036], [0.166, 0]], q(20, 12)).rotateX(PI / 2);
+  const HUB = shell([[0, 0.062], [0.03, 0.062], [0.046, 0.045], [0.05, 0], [0.046, -0.045], [0.03, -0.062], [0, -0.062]], q(14, 6, 5)).rotateX(PI / 2);
+  const SPOKE = warp(slab([[0.035, -0.019], [0.1, -0.012], [0.168, -0.015], [0.176, -0.004], [0.176, 0.012], [0.168, 0.02], [0.1, 0.011], [0.035, 0.019]], 0.026, 0.007, 12, 1),
+    (v) => { v.y += 0.028 * ((v.x - 0.035) / 0.14) ** 2; v.z *= 1 - 0.3 * (v.x - 0.035) / 0.14; });
+  const NUT = cyl(0.016, 0.016, 0.022, 6);
+  const wheel = (x, rimC) => [
+    part(TYRE.clone(), 0x161617, x, AY, 0),
+    part(RIM.clone(), rimC, x, AY, 0),
+    part(HUB.clone(), 0x7d8288, x, AY, 0),
+    ...Array.from({ length: q(6, 3, 0) }, (_, k) => part(SPOKE.clone(), rimC, x, AY, 0, 0, 0, k * PI / q(3, 1.5))),
+    ...(lo > 1 ? [part(cyl(0.17, 0.17, 0.03, 8), rimC, x, AY, 0, PI / 2, 0, 0)] : []),   // distant: the wheel's face
+    ...near([-1, 1].map((s) => part(NUT.clone(), 0xb6bbc1, x, AY, s * 0.115, PI / 2, 0, 0))),
+  ];
+
+  // ---- body panels (paint)
+  const FRONT = warp(slab([[0.19, 0.33], [0.25, 0.62], [0.31, 0.86], [0.36, 0.975], [0.43, 1.0], [0.52, 0.985], [0.59, 0.92], [0.625, 0.82], [0.62, 0.72], [0.585, 0.665],
+    [0.52, 0.655], [0.47, 0.605], [0.42, 0.53], [0.38, 0.45], [0.35, 0.33], [0.3, 0.25], [0.2, 0.25]], 0.44, 0.04, 36),
+  (v) => { v.z *= 0.72 + 0.28 * Math.sin(clamp((v.y - 0.3) / 0.75, 0, 1) * PI); v.x -= 0.9 * v.z * v.z; });   // the apron wraps round the knees
+  const FLOOR = soft(slab([[-0.32, 0.33], [0.27, 0.33], [0.31, 0.28], [0.27, 0.2], [-0.24, 0.2], [-0.33, 0.26]], 0.34, 0.035, 0, 2, false));
+  const CORE = warp(slab([[-0.2, 0.33], [-0.24, 0.5], [-0.3, 0.68], [-0.345, 0.75], [-0.6, 0.758], [-0.85, 0.752], [-0.94, 0.732], [-0.966, 0.69], [-0.94, 0.655],
+    [-0.8, 0.65], [-0.6, 0.655], [-0.45, 0.62], [-0.38, 0.55], [-0.33, 0.42], [-0.29, 0.3]], 0.26, 0.03, 36),
+  (v) => { v.z *= 1 - 0.3 * smoothstep(-0.55, -0.97, v.x); });
+  const SIDE_PTS = [[-0.24, 0.46], [-0.3, 0.62], [-0.36, 0.745], [-0.62, 0.755], [-0.86, 0.745], [-0.95, 0.715], [-0.958, 0.665], [-0.9, 0.625], [-0.75, 0.6], [-0.55, 0.535], [-0.4, 0.485], [-0.3, 0.455]];
+  const SIDE = (s) => warp(slab(SIDE_PTS, 0.05, 0.018, 36), (v) => {   // a side panel, swelling out over the engine
+    const bump = Math.exp(-(((v.x + 0.55) / 0.28) ** 2 + ((v.y - 0.62) / 0.13) ** 2));
+    v.z += s * (0.145 + 0.024 * bump) * (1 - 0.22 * smoothstep(-0.6, -0.96, v.x));
+  });
+  const COVER = warp(slab([[0.33, 1.0], [0.345, 1.065], [0.41, 1.11], [0.51, 1.105], [0.575, 1.06], [0.565, 1.0], [0.47, 0.975], [0.38, 0.978]], 0.44, 0.035, 30),
+    (v) => { v.z *= 1 - 0.35 * smoothstep(1.0, 1.11, v.y) - 0.15 * smoothstep(0.45, 0.58, v.x); });   // the handlebar cover
   const paint = merge([
-    part(extrude([[-0.9, 0.6], [-0.82, 0.48], [-0.25, 0.43], [0.22, 0.38], [0.3, 0.42], [0.25, 0.5], [-0.15, 0.52], [-0.3, 0.7], [-0.88, 0.7]], 0.34), W),   // floorboard and the body under the seat
-    part(extrude([[0.18, 0.42], [0.3, 0.36], [0.47, 0.95], [0.4, 1.02], [0.32, 0.98]], 0.42), W),                                                               // leg shield
-    part(box(0.2, 0.12, 0.24), W, 0.46, 1.0, 0),                                                                                                             // headset
-    part(extrude([[0.5, 0.58], [0.82, 0.58], [0.78, 0.66], [0.55, 0.66]], 0.16), W),                                                                           // front mudguard
+    part(FRONT, W), part(FLOOR, W), part(CORE, W), part(SIDE(1), W), part(SIDE(-1), W), part(COVER, W),
+    part(arc(0.26, 2.1, 0.318, 0.334, 0.11), W, FX, AY, 0),   // front mudguard
   ]);
+
+  // ---- the seat: padded, narrow at the nose, a step up to the passenger; piping round its top edge
+  const seatW = (x) => (0.62 + 0.38 * smoothstep(-0.28, -0.44, x)) * (1 - 0.15 * smoothstep(-0.8, -0.95, x));
+  const SEAT_TOP = [[-0.29, 0.815], [-0.32, 0.846], [-0.4, 0.858], [-0.5, 0.856], [-0.62, 0.862], [-0.74, 0.878], [-0.86, 0.876], [-0.93, 0.852]];
+  const SEAT = warp(slab([...SEAT_TOP, [-0.955, 0.81], [-0.942, 0.768], [-0.88, 0.745], [-0.6, 0.742], [-0.36, 0.745], [-0.285, 0.765]], 0.3, 0.04, 36), (v) => { v.z *= seatW(v.x); });
+  const seatTop = new THREE.CatmullRomCurve3(SEAT_TOP.map(([x, y]) => new THREE.Vector3(x, y, 0)), false, 'centripetal').getPoints(16);
+  const piping = (s) => tube(seatTop.map((p) => [p.x, p.y - 0.011, s * 0.139 * seatW(p.x)]), 0.0055, 0x4a4b4e, 20, 4);
+
+  // ---- engine and rear suspension
+  const CASE = soft(slab([[-0.765, 0.3], [-0.735, 0.37], [-0.66, 0.4], [-0.45, 0.43], [-0.25, 0.465], [-0.12, 0.425], [-0.07, 0.33], [-0.12, 0.235], [-0.22, 0.2], [-0.45, 0.215], [-0.66, 0.2], [-0.735, 0.23]], 0.075, 0.022, 28));
+  const boss = (r) => shell([[0, 0.012], [r * 0.85, 0.012], [r, 0], [r * 0.95, -0.01], [0, -0.01]], 14).rotateX(PI / 2);
+  const fins = [[0, 0]];
+  for (let k = 0; k < 5; k++) { const y = 0.02 + k * 0.028; fins.push([0.05, y], [0.064, y + 0.004], [0.064, y + 0.01], [0.05, y + 0.014]); }
+  const CYL = lay(lo ? cylUp(0.06, 0.05, 0.19, 6) : shell([...fins, [0.052, 0.17], [0.04, 0.19], [0, 0.19]], 8), [-0.12, 0.13, 0], [0.08, 0.135, 0]);
+  const shA = [-0.72, 0.39, 0.135], shB = [-0.62, 0.7, 0.135], shD = new THREE.Vector3(shB[0] - shA[0], shB[1] - shA[1], 0).normalize(), shL = len3(shA, shB);
+  const shE2 = new THREE.Vector3().crossVectors(shD, new THREE.Vector3(0, 0, 1));
+  const spring = Array.from({ length: 61 }, (_, k) => { const t = 0.12 + k / 60 * 0.56, a = k / 60 * PI * 2 * 7;
+    return [shA[0] + shD.x * t * shL + shE2.x * Math.cos(a) * 0.03, shA[1] + shD.y * t * shL + shE2.y * Math.cos(a) * 0.03, shA[2] + Math.sin(a) * 0.03]; });
+  const at = (a, t) => [shA[0] + shD.x * t * shL, shA[1] + shD.y * t * shL, shA[2]];
+  // the exhaust: header round under the engine, the silencer rising to the back, a heat shield over it, a tip
+  const mA = [-0.5, 0.29, -0.175], mB = [-0.94, 0.37, -0.175], mD = new THREE.Vector3(mB[0] - mA[0], mB[1] - mA[1], 0).normalize();
+  const SHIELD = (() => { const sh = new THREE.Shape(); sh.absarc(0, 0, 0.081, 0.15, 2.1, false); sh.absarc(0, 0, 0.073, 2.1, 0.15, true);
+    return soft(new THREE.ExtrudeGeometry(sh, { depth: 0.26, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.003, bevelOffset: -0.003, bevelSegments: 1, curveSegments: 8 }).rotateX(-PI / 2).translate(0, 0.08, 0)); })();
+  const mTip = [mB[0] - mD.x * 0.02, mB[1] - mD.y * 0.02, mB[2]];
+
+  // ---- lamps, mirrors, controls
+  const HEAD = [[-0.1, -0.03], [0.1, -0.03], [0.115, 0.002], [0.095, 0.04], [-0.095, 0.04], [-0.115, 0.002]];
+  const bendX = (g) => warp(g, (v) => { v.x -= 0.9 * v.z * v.z; });
+  const SIGNAL = [[-0.035, -0.014], [0.035, -0.014], [0.042, 0.01], [-0.028, 0.017]];
+  const MIRROR = shell([[0, 0.03], [0.035, 0.026], [0.053, 0.012], [0.057, 0], [0.05, -0.001], [0.04, 0.004], [0, 0.006]], q(14, 8));
+  const GLASS = shell([[0, 0.001], [0.05, 0.001], [0.05, 0.0045], [0, 0.0045]], 14);
+  const grip = [[0, 0], [0.027, 0], [0.027, 0.008], [0.021, 0.012]];
+  for (let k = 0; k < 5; k++) grip.push([0.0225, 0.016 + k * 0.018], [0.0205, 0.025 + k * 0.018]);
+  const GRIP = lo ? cylUp(0.024, 0.024, 0.12, 6) : shell([...grip, [0.0225, 0.108], [0.024, 0.114], [0.02, 0.12], [0, 0.12]], q(8, 6));
+  const BAREND = shell([[0, 0], [0.019, 0], [0.022, 0.01], [0.018, 0.02], [0, 0.02]], 12);
+  const SPEEDO = merge([   // in its own frame, the dial facing +y
+    part(shell([[0, -0.02], [0.062, -0.02], [0.066, 0.004], [0.06, 0.012], [0.052, 0.007], [0, 0.007]], 12), 0x1b1c1e),
+    part(shell([[0, 0.0065], [0.051, 0.0065], [0.051, 0.0085], [0, 0.0085]], 16), 0x23292f),
+    part(new THREE.TorusGeometry(0.04, 0.0018, 3, 18, PI * 1.5), 0xdfe6ea, 0, 0.009, 0, PI / 2, 0, PI * 0.25),
+    part(new THREE.CylinderGeometry(0.0025, 0.0025, 0.034, 5), 0xff6a1a, 0.012, 0.01, -0.008, 0, 0.6, PI / 2),
+  ]);
+  const frk = (s, t) => [FX - 0.262 * t, AY + 0.965 * t, s * 0.085];
+  const bellows = [[0, 0], [0.03, 0]];
+  for (let k = 0; k < 4; k++) bellows.push([0.035, 0.014 + k * 0.026], [0.027, 0.027 + k * 0.026]);
+
   const rest = merge([
-    part(extrude([[-0.86, 0.7], [-0.22, 0.7], [-0.16, 0.76], [-0.32, 0.82], [-0.8, 0.81], [-0.88, 0.76]], 0.3), 0x1c1c1e),                                   // seat
-    part(cyl(0.018, 0.018, 0.66, 8), 0x232325, 0.42, 1.07, 0, Math.PI / 2, 0, 0),                                                                            // handlebar
-    ...[-1, 1].map((s) => part(cyl(0.022, 0.022, 0.12, 8), 0x101010, 0.42, 1.07, s * 0.28, Math.PI / 2, 0, 0)),                                                // grips
-    ...[-1, 1].map((s) => rod([0.66, 0.32, s * 0.07], [0.45, 1.0, s * 0.07], 0.022, 0x9aa0a6)),                                                                // fork
-    ...[-1, 1].map((s) => rod([0.42, 1.07, s * 0.24], [0.4, 1.28, s * 0.3], 0.008, 0x2a2a2a)),                                                                 // mirror stalks
-    ...[-1, 1].map((s) => part(box(0.02, 0.06, 0.09), 0x2a2a2a, 0.4, 1.3, s * 0.31)),                                                                          // mirrors
-    ...[0.66, -0.66].map((x) => part(new THREE.TorusGeometry(0.25, 0.075, 8, 22), 0x141414, x, 0.32, 0)),                                                     // tyres
-    ...[0.66, -0.66].map((x) => part(cyl(0.15, 0.15, 0.09, 14), 0x7a7e84, x, 0.32, 0, Math.PI / 2, 0, 0)),                                                     // hubs
-    rod([-0.62, 0.32, 0.12], [-0.1, 0.42, 0.12], 0.035, 0x55585c),                                                                                            // swing arm
-    part(cyl(0.04, 0.045, 0.55, 10), 0x8d9196, -0.5, 0.34, 0.18, 0, 0, Math.PI / 2),                                                                          // exhaust
-    part(box(0.06, 0.08, 0.14), 0xfff4d6, 0.57, 1.0, 0),                                                                                                     // headlight
-    part(box(0.05, 0.05, 0.16), 0xc0141a, -0.92, 0.66, 0),                                                                                                   // tail light
-    part(box(0.012, 0.11, 0.18), 0xf0f0f0, -0.93, 0.55, 0),                                                                                                  // plate
+    ...wheel(FX, 0xa9aeb5), ...wheel(RX, 0xa9aeb5),
+    // front brake: the disc on the left, its bolts, the caliper behind the fork leg, its hose up the leg
+    part(ring([[0.075, 0.0028], [0.122, 0.0028], [0.122, -0.0028], [0.075, -0.0028]], q(32, 14)).rotateX(PI / 2), 0xb4b8bd, FX, AY, -0.052),
+    ...near(Array.from({ length: 5 }, (_, k) => part(cyl(0.007, 0.007, 0.012, 6), 0x55595e, FX + Math.cos(k * 1.2566) * 0.065, AY + Math.sin(k * 1.2566) * 0.065, -0.052, PI / 2, 0, 0))),
+    part(soft(slab(Array.from({ length: 7 }, (_, k) => { const a = 2.05 + k * 0.12; return [Math.cos(a) * 0.088, Math.sin(a) * 0.088]; })
+      .concat(Array.from({ length: 7 }, (_, k) => { const a = 2.77 - k * 0.12; return [Math.cos(a) * 0.137, Math.sin(a) * 0.137]; })), 0.046, 0.012, 0, 2, false)), 0x2b2d31, FX, AY, -0.068),
+    ...near([tube([[FX - 0.11, AY + 0.07, -0.1], [FX - 0.12, 0.52, -0.112], [0.53, 0.68, -0.105]], 0.005, 0x111112, 14, 4),
+    // the rear drum, behind the belt case
+    part(shell([[0, 0.04], [0.09, 0.04], [0.095, 0.058], [0.085, 0.075], [0, 0.075]], 20).rotateX(PI / 2), 0x6f7378, RX, AY, 0)]),
+    // telescopic fork: lower legs, rubber boots, chrome stanchions up into the apron, the axle lugs
+    ...[-1, 1].flatMap((s) => [
+      part(lay(cylUp(0.027, 0.025, 0.31, q(12, 6)), frk(s, -0.03), frk(s, 0.28)), 0xb8bcc1),
+      ...mid([part(lay(lo ? cylUp(0.033, 0.033, 0.12, 6) : shell([...bellows, [0.022, 0.12], [0, 0.12]], 10), frk(s, 0.27), frk(s, 0.39)), 0x151516)]),
+      ...mid([part(lay(cylUp(0.019, 0.019, 0.42, q(10, 6)), frk(s, 0.385), frk(s, 0.8)), 0xd9dde1)]),
+      ...near([part(cyl(0.03, 0.03, 0.05, 10), 0xb8bcc1, FX, AY, s * 0.085, PI / 2, 0, 0)]),
+    ]),
+    // the seat, its piping, the grab rail round the back on three posts
+    part(SEAT, 0x1a1a1c), ...near([piping(1), piping(-1)]),
+    tube([[-0.58, 0.73, 0.165], [-0.64, 0.768, 0.18], [-0.78, 0.776, 0.184], [-0.92, 0.78, 0.16], [-0.985, 0.784, 0.08], [-0.995, 0.785, 0], [-0.985, 0.784, -0.08], [-0.92, 0.78, -0.16], [-0.78, 0.776, -0.184], [-0.64, 0.768, -0.18], [-0.58, 0.73, -0.165]], 0.013, 0x2c2e31, 30, 6),
+    ...near([rod([-0.985, 0.785, 0], [-0.955, 0.71, 0], 0.012, 0x2c2e31, 8)]),
+    // floor mat: rubber, ribbed
+    ...mid([part(soft(slab([[-0.24, -0.15], [0.22, -0.15], [0.24, -0.13], [0.24, 0.13], [0.22, 0.15], [-0.24, 0.15]], 0.01, 0.003, 0, 1, false)).rotateX(PI / 2), 0x232427, 0, 0.335, 0)]),
+    ...near(Array.from({ length: 7 }, (_, k) => rod([-0.22, 0.3405, -0.12 + k * 0.04], [0.2, 0.3405, -0.12 + k * 0.04], 0.0035, 0x2f3034, 5))),
+    // tail light, rear signals, the plate on a flap under the tail, the hugger over the rear tyre
+    part(soft(lens([[-0.1, -0.022], [0.1, -0.022], [0.112, 0], [0.09, 0.024], [-0.09, 0.024], [-0.112, 0]], 0.036, 0.011)), 0xa3121b, -0.958, 0.703, 0),
+    ...near([part(soft(lens([[-0.07, -0.006], [0.07, -0.006], [0.07, 0.006], [-0.07, 0.006]], 0.02, 0.004)), 0xf0484f, -0.976, 0.708, 0)]),
+    ...mid([-1, 1].map((s) => part(soft(lens(SIGNAL, 0.032, 0.009)), 0xe68a1a, -0.925, 0.672, s * 0.128, 0, s * -0.5, 0))),
+    part(soft(slab([[-0.9, 0.655], [-0.95, 0.652], [-0.982, 0.6], [-0.99, 0.45], [-0.975, 0.425], [-0.958, 0.5], [-0.93, 0.6]], 0.16, 0.012, 0, 2, false)), 0x1e1f21),
+    ...mid([part(soft(lens([[-0.1, -0.07], [0.1, -0.07], [0.1, 0.07], [-0.1, 0.07]], 0.008, 0.003, 0)), 0x202124, -0.992, 0.505, 0, 0, 0, -0.08)]),
+    part(soft(lens([[-0.093, -0.064], [0.093, -0.064], [0.093, 0.064], [-0.093, 0.064]], 0.006, 0.002, 0)), 0xe9e9e4, -0.996, 0.505, 0, 0, 0, -0.08),
+    part(arc(0.65, 2.65, 0.318, 0.333, 0.1), 0x1e1f21, RX, AY, 0),
+    // belt case on the left (covers on the pulleys), air box over it, crankcase, the finned cylinder forward under the floor
+    part(CASE, 0x8a8e93, 0, 0, 0.125),
+    ...near([part(boss(0.065), 0x74787d, RX, AY, 0.162), part(boss(0.095), 0x74787d, -0.2, 0.33, 0.162)]),
+    ...mid([part(soft(slab([[-0.5, 0.43], [-0.25, 0.47], [-0.2, 0.52], [-0.48, 0.5]], 0.1, 0.02, 14, 2)), 0x232427, 0, 0, 0.12)]),
+    part(soft(slab([[-0.42, 0.42], [-0.12, 0.43], [-0.05, 0.33], [-0.1, 0.16], [-0.4, 0.16]], 0.17, 0.03, 16, 2)), 0x45484d),
+    ...mid([part(CYL, 0x4f5358)]),
+    // swing arm on the right, the shock with its spring on the left
+    rod([RX, AY, -0.09], [-0.38, 0.27, -0.09], 0.022, 0x3d4044, 8),
+    ...mid([part(lay(cylUp(0.014, 0.014, shL, 8), shA, shB), 0x2a2c2f), part(lay(cylUp(0.02, 0.02, shL * 0.25, 10), at(0, 0.72), shB), 0x2a2c2f)]),
+    ...near([part(lay(cylUp(0.036, 0.036, 0.008, 12), at(0, 0.11), shB), 0x2a2c2f), part(lay(cylUp(0.036, 0.036, 0.008, 12), at(0, 0.68), shB), 0x2a2c2f),
+      ...[shA, shB].map((p) => part(cyl(0.022, 0.022, 0.04, 10), 0x2a2c2f, p[0], p[1], p[2], PI / 2, 0, 0))]),
+    ...mid([lo ? part(lay(cylUp(0.032, 0.032, shL * 0.56, 6), at(0, 0.12), shB), 0xb8231c) : tube(spring, 0.0055, 0xb8231c, 50, 4)]),
+    // exhaust
+    ...mid([tube([[0.06, 0.12, -0.02], [0.04, 0.08, -0.05], [-0.08, 0.08, -0.085], [-0.28, 0.14, -0.12], [-0.44, 0.26, -0.165], [-0.52, 0.294, -0.175]], 0.017, 0x4d4741, 20, 6)]),
+    part(lay(shell([[0, 0], [0.03, 0], [0.052, 0.03], [0.066, 0.08], [0.068, 0.36], [0.06, 0.42], [0.042, 0.45], [0, 0.45]], q(16, 8)), mA, mB), 0x2f3134),
+    ...mid([part(lay(SHIELD, mA, mB), 0xb9bdc2)]),
+    ...near([part(lay(ring([[0.016, 0], [0.024, 0], [0.026, 0.05], [0.017, 0.05]], 12), mTip, mB.map((v, i) => v + [mD.x, mD.y, 0][i])), 0x9ea2a7),
+    rod([-0.62, 0.32, -0.16], [-0.6, 0.29, -0.095], 0.01, 0x2a2c2f, 6)]),
+    // stands, folded: the side stand on the left, the centre stand under the engine; the passenger's pegs
+    ...near([rod([-0.12, 0.2, 0.13], [-0.4, 0.15, 0.17], 0.012, 0x222326, 6), part(cyl(0.02, 0.02, 0.01, 8), 0x222326, -0.405, 0.15, 0.17, PI / 2, 0, 0),
+    ...[-1, 1].map((s) => rod([-0.2, 0.17, s * 0.1], [-0.4, 0.1, s * 0.12], 0.014, 0x222326, 6)),
+    rod([-0.4, 0.1, -0.12], [-0.4, 0.1, 0.12], 0.012, 0x222326, 6), rod([-0.35, 0.11, 0.115], [-0.36, 0.12, 0.18], 0.01, 0x222326, 6),
+    ...[-1, 1].flatMap((s) => [rod([-0.34, 0.47, s * 0.17], [-0.36, 0.39, s * 0.2], 0.01, 0x2a2c2f, 6), rod([-0.36, 0.39, s * 0.19], [-0.36, 0.39, s * 0.265], 0.016, 0x18181a, 8)])]),
+    // headlight in its chrome bezel, front signals, the handlebar, its grips, levers and bar ends, the speedo, mirrors
+    ...mid([part(bendX(lens(HEAD.map(([z, y]) => [z * 1.12, y * 1.15]), 0.03, 0.008)), 0xbfc4c9, 0.611, 0.8, 0)]),
+    part(bendX(lens(HEAD, 0.04, 0.012)), 0xf3eedd, 0.622, 0.8, 0),
+    ...mid([-1, 1].map((s) => part(soft(lens(SIGNAL, 0.03, 0.008)), 0xe68a1a, 0.58, 0.905, s * 0.16, 0, s * 0.45, 0))),
+    rod([0.42, 1.07, -0.23], [0.42, 1.07, 0.23], 0.011, 0x2a2b2e, 8),
+    ...[-1, 1].flatMap((s) => [
+      part(GRIP.clone(), 0x141414, 0.42, 1.07, s * 0.215, s * PI / 2, 0, 0),
+      ...near([part(BAREND.clone(), 0x8d9196, 0.42, 1.07, s * 0.335, s * PI / 2, 0, 0),
+      rod([0.42, 1.07, s * 0.2], [0.45, 1.075, s * 0.205], 0.012, 0x2a2b2e, 8),
+      tube([[0.45, 1.075, s * 0.205], [0.49, 1.07, s * 0.24], [0.5, 1.062, s * 0.3], [0.495, 1.058, s * 0.33]], 0.006, 0x9ea3a8, 10, 5)]),
+      rod([0.41, 1.1, s * 0.15], [0.39, 1.255, s * 0.255], 0.0075, 0x1d1e20, 6),
+      part(MIRROR.clone(), 0x1d1e20, 0.385, 1.275, s * 0.262, 0, 0, -PI / 2, 0.75, 1, 1),
+      ...near([part(GLASS.clone(), 0x9fb4c2, 0.385, 1.275, s * 0.262, 0, 0, -PI / 2, 0.75, 1, 1)]),
+    ]),
+    ...near([SPEEDO.applyMatrix4(new THREE.Matrix4().makeRotationZ(0.9).setPosition(0.385, 1.095, 0))]),
   ]);
   return { paint, rest };
-})();
+}
+export const BIKE = makeBike(0);
+export const BIKE_FAR = makeBike(1);   // past BIKE_NEAR metres
+export const BIKE_DIST = makeBike(2);  // past BIKE_MID
+const BIKE_NEAR = 30, BIKE_MID = 90;
 // on a bike, the rider's root: hips (0.6 above it) on the seat
-export const RIDER_AT = new THREE.Vector3(-0.42, 0.21, 0);
+export const RIDER_AT = new THREE.Vector3(-0.42, 0.23, 0);
 
 export const HELMET = merge([
   // a shell 1.5 cm thick: the outside dome, a rounded edge, the lining inside
@@ -356,6 +542,9 @@ export function createStreetLife(host, street) {
     sq.items.get(k).list.push([matrix, color]);
     sq.pts.push(p);
   };
+  // parked motorbikes: one list, sorted into three instanced batches as the camera moves (sortParked)
+  const parked = [];
+  const addBike = (m, color) => parked.push({ m, color, p: new THREE.Vector3().setFromMatrixPosition(m) });
   const walls = [];
   const wallBox = (x0, z0, x1, z1, kind) => walls.push({ y: 0, kind, minX: Math.min(x0, x1), maxX: Math.max(x0, x1), minZ: Math.min(z0, z1), maxZ: Math.max(z0, z1) });
   const at = (x, y, z, ry = 0, s = 1) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ry), new THREE.Vector3(s, s, s));
@@ -399,8 +588,7 @@ export function createStreetLife(host, street) {
           for (let b = 0; b < count; b++) {
             const p = frame(bx, bz, n, u + b * 0.78 + 0.39, DEEP + 1.0);
             const m = at(p.x, SLAB, p.z, Math.atan2(-n[1], n[0]) + (r() - 0.5) * 0.25);
-            add(BIKE.paint, MAT.paint, m, new THREE.Color(pickOf(r, BIKE_PAINT)));
-            add(BIKE.rest, MAT.vc, m);
+            addBike(m, new THREE.Color(pickOf(r, BIKE_PAINT)));
             pts.push(frame(bx, bz, n, u + b * 0.78 + 0.05, DEEP + 0.08), frame(bx, bz, n, u + b * 0.78 + 0.73, DEEP + 1.92));
           }
           boxAround(pts, 'bike');
@@ -465,8 +653,7 @@ export function createStreetLife(host, street) {
     const ry = Math.atan2(-s.n[0], -s.n[1]);   // parallel to the kerb
     s.ry = ry;
     const m = at(s.x, SLAB, s.z, ry);
-    add(BIKE.paint, MAT.paint, m, new THREE.Color(pickOf(r, BIKE_PAINT)));
-    add(BIKE.rest, MAT.vc, m);
+    addBike(m, new THREE.Color(pickOf(r, BIKE_PAINT)));
     const c = Math.cos(ry), sn = Math.sin(ry);
     wallBox(s.x - Math.abs(c) * 0.95 - Math.abs(sn) * 0.35, s.z - Math.abs(sn) * 0.95 - Math.abs(c) * 0.35, s.x + Math.abs(c) * 0.95 + Math.abs(sn) * 0.35, s.z + Math.abs(sn) * 0.95 + Math.abs(c) * 0.35, 'bike');
   }
@@ -511,6 +698,37 @@ export function createStreetLife(host, street) {
     }
     const c = sq.pts.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / Math.max(1, sq.pts.length));
     squareList.push({ ...sq, at: c, r: Math.max(10, ...sq.pts.map((p) => p.distanceTo(c))) });
+  }
+  // the parked bikes, drawn by distance: the full model within BIKE_NEAR, simpler ones further off; only those in
+  // view (a margin round it) and short of the haze. Re-sorted a few times a second while the camera moves.
+  const bikeTiers = [BIKE, BIKE_FAR, BIKE_DIST].map((B) => {
+    const n = Math.max(1, parked.length), T = { paint: new THREE.InstancedMesh(B.paint, MAT.paint, n), rest: new THREE.InstancedMesh(B.rest, MAT.vc, n) };
+    for (const im of [T.paint, T.rest]) { im.count = 0; im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true; root.add(im); }
+    T.paint.setColorAt(0, new THREE.Color(1, 1, 1));
+    return T;
+  });
+  const _frustum = new THREE.Frustum(), _pv = new THREE.Matrix4(), _bsph = new THREE.Sphere(new THREE.Vector3(), 3);
+  const sorted = { t: 0, at: new THREE.Vector3(1e9, 0, 0), q: new THREE.Quaternion() };
+  function sortParked(dt) {
+    sorted.t -= dt;
+    const cam = camera.position, moved = cam.distanceToSquared(sorted.at) > 0.04 || camera.quaternion.angleTo(sorted.q) > 0.02;
+    if (sorted.t > 0 || (!moved && sorted.t > -1)) return;
+    sorted.t = 0.15; sorted.at.copy(cam); sorted.q.copy(camera.quaternion);
+    camera.updateMatrixWorld();
+    _frustum.setFromProjectionMatrix(_pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const far = (scene.fog?.far ?? 320) + 10, n = [0, 0, 0];
+    for (const b of parked) {
+      const d = b.p.distanceTo(cam);
+      if (d > far || !_frustum.intersectsSphere(_bsph.set(b.p, 3))) continue;
+      const t = d < BIKE_NEAR ? 0 : d < BIKE_MID ? 1 : 2, T = bikeTiers[t], k = n[t]++;
+      T.paint.setMatrixAt(k, b.m); T.rest.setMatrixAt(k, b.m); T.paint.setColorAt(k, b.color);
+    }
+    bikeTiers.forEach((T, t) => {
+      for (const a of [T.paint.instanceMatrix, T.rest.instanceMatrix, T.paint.instanceColor]) {
+        a.clearUpdateRanges(); if (n[t]) a.addUpdateRange(0, n[t] * a.itemSize); a.needsUpdate = true;
+      }
+      T.paint.count = T.rest.count = n[t];
+    });
   }
   // they stop you like any wall (an older app without host.addWalls: from its next layout)
   if (host.addWalls) host.addWalls(walls); else city.walls.push(...walls);
@@ -742,6 +960,7 @@ export function createStreetLife(host, street) {
     const color = pickOf(Math.random, BIKE_PAINT);
     const pm = new THREE.Mesh(BIKE.paint, paintMat(color)); pm.castShadow = true; g.add(pm);
     const rm = new THREE.Mesh(BIKE.rest, MAT.vc); rm.castShadow = true; g.add(rm);
+    g.userData.meshes = [pm, rm];
     root.add(g);
     const b = { group: g, speed: 0, stopFor: 0, honkT: 0, rider: null, helmet: null, cruise: 9 + Math.random() * 4 };
     placeBike(b, false);
@@ -835,6 +1054,8 @@ export function createStreetLife(host, street) {
       // shown up to the haze; the rider (and their animation) only within 75 m
       const d2 = p.distanceToSquared(cam);
       b.group.visible = d2 < far2;
+      const lod = d2 < BIKE_NEAR * BIKE_NEAR ? BIKE : d2 < BIKE_MID * BIKE_MID ? BIKE_FAR : BIKE_DIST, [pm, rm] = b.group.userData.meshes;   // the full model close by
+      if (pm.geometry !== lod.paint) { pm.geometry = lod.paint; rm.geometry = lod.rest; }
       if (d2 < 120 * 120) seatRider(b);
       if (b.rider) {
         b.rider.root.visible = d2 < 75 * 75;
@@ -956,6 +1177,7 @@ export function createStreetLife(host, street) {
         const d = Math.hypot(sq.at.x - cam.x, sq.at.z - cam.z) - sq.r;
         sq.group.visible = d < far; sq.detail.visible = d < 130;
       }
+      sortParked(dt);
       updateBikes(dt);
       updatePool(dt, out);
       if (out && vendors.length < VENDORS) addVendor();
