@@ -3,3 +3,6 @@ Copyright 2026 RunSnip
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 It uses three.js (MIT), provided by the AgentOrch app at run time, not included here.
+- people/*.glb — characters from the Microsoft Rocketbox Avatar Library
+  (https://github.com/microsoft/Microsoft-Rocketbox), MIT License, Copyright (c) Microsoft Corporation;
+  converted (textures reduced, no animation clips) for the street.

@@ -18,12 +18,20 @@ const { createStreetLife } = await import('./streetlife.js');
 const { createMinimap } = await import('./minimap.js');
 const { createSurvival } = await import('./survival.js');
 
+const PEOPLE = [...Array.from({ length: 10 }, (_, i) => `Male_Adult_${String(i + 1).padStart(2, '0')}`),
+  ...Array.from({ length: 10 }, (_, i) => `Female_Adult_${String(i + 1).padStart(2, '0')}`),
+  'Chef_Female_01', 'Delivery_Male_01', 'Gardener_Male_01', 'Construction_Male_01', 'Sports_Male_01', 'Sports_Female_01'];
+
 export async function install(host) {
   const css = document.createElement('link');
   css.rel = 'stylesheet'; css.href = new URL('./city.css', import.meta.url).href;
   document.head.append(css);
 
   host.city.setTreeDetail(24);   // every leaf in 3D on the nearest trees
+
+  // who's out in the street: people in everyday clothes (people/, Microsoft Rocketbox avatars, MIT), with a trade
+  // here and there; now and then someone from an office. They move with the office people's clips (same rig).
+  host.setPeople?.(PEOPLE.map((n) => new URL(`./people/${n}.glb`, import.meta.url).pathname));
 
   // the streets: cars in their lanes, people on the sidewalks, a car to drive
   const street = createStreet(host);
