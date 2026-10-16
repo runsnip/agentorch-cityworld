@@ -283,9 +283,13 @@ function makeServing(dish) {
   }
   if (kind === 'banhmi') {
     add(new THREE.BoxGeometry(0.22, 0.004, 0.16), std(0xd8c7a3, { roughness: 0.95 }), 0, 0.002, 0);
-    const loaf = add(new THREE.CapsuleGeometry(0.035, 0.14, 6, 12), std(0xd29a52, { roughness: 0.7 }), 0, 0.035, 0); loaf.rotation.z = Math.PI / 2; loaf.scale.set(1, 1, 0.85);
-    for (let k = -2; k <= 2; k++) { const cut = add(new THREE.BoxGeometry(0.004, 0.004, 0.05), std(0xa86a33), k * 0.03, 0.068, 0); cut.rotation.y = 0.6; }
-    add(new THREE.BoxGeometry(0.15, 0.012, 0.012), std(0x5aa648), 0, 0.03, 0.028);
+    // the loaf is its own group: it's what goes up to the mouth (userData.handheld); the paper stays on the table
+    const bread = new THREE.Group(); bread.position.set(0, 0.035, 0); g.add(bread);
+    const part = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; bread.add(m); return m; };
+    const loaf = part(new THREE.CapsuleGeometry(0.035, 0.14, 6, 12), std(0xd29a52, { roughness: 0.7 }), 0, 0, 0); loaf.rotation.z = Math.PI / 2; loaf.scale.set(1, 1, 0.85);
+    for (let k = -2; k <= 2; k++) { const cut = part(new THREE.BoxGeometry(0.004, 0.004, 0.05), std(0xa86a33), k * 0.03, 0.033, 0); cut.rotation.y = 0.6; }
+    part(new THREE.BoxGeometry(0.15, 0.012, 0.012), std(0x5aa648), 0, -0.005, 0.028);
+    g.userData.handheld = bread;
     return g;
   }
   // a glass: clear walls, the drink inside, ice cubes, a straw
@@ -622,7 +626,7 @@ export function createStreetLife(host, street) {
         scene.add(bowl); bowls.push(bowl); host.audio?.sfx('drop');
         // the CEO eats: chopsticks to a bowl or a plate; a glass or a bánh mì goes up to the mouth itself
         const kind = { soup: 'soup', rice: 'rice', xoi: 'rice', banhmi: 'bread' }[SERVING[st.dish] || 'soup'] || 'drink';
-        host.playerEat?.({ at: bowl.position.clone(), kind, prop: kind === 'drink' || kind === 'bread' ? bowl : null });
+        host.playerEat?.({ at: bowl.position.clone(), kind, prop: kind === 'drink' || kind === 'bread' ? bowl.userData.handheld || bowl : null });
       }
       orders.push({ get: () => order, clear: () => { order = null; }, at: () => new THREE.Vector3(st.at.x, 0, st.at.z) });
     }));
