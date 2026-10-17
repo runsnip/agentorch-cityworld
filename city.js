@@ -18,9 +18,10 @@ const { createStreetLife } = await import('./streetlife.js');
 const { createMinimap } = await import('./minimap.js');
 const { createSurvival } = await import('./survival.js');
 
+// everyday street clothes only: no swimwear, nothing religious or national
 const PEOPLE = [...Array.from({ length: 10 }, (_, i) => `Male_Adult_${String(i + 1).padStart(2, '0')}`),
-  ...Array.from({ length: 10 }, (_, i) => `Female_Adult_${String(i + 1).padStart(2, '0')}`),
-  'Chef_Female_01', 'Delivery_Male_01', 'Gardener_Male_01', 'Construction_Male_01', 'Sports_Male_01', 'Sports_Female_01'];
+  ...[1, 2, 3, 4, 5, 7, 8, 9, 11, 12, 13, 14, 15, 17].map((i) => `Female_Adult_${String(i).padStart(2, '0')}`),
+  'Chef_Female_01', 'Delivery_Male_01', 'Gardener_Male_01', 'Construction_Male_01'];
 
 export async function install(host) {
   const css = document.createElement('link');
