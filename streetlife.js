@@ -380,24 +380,34 @@ const STALL = merge([
 const TARP = merge([part(box(2.7, 0.03, 1.95), 0xffffff, 0, SLAB + 2.2, 0.1, -0.16, 0, 0),   // the sheet, and its hem hanging at the front and back
   part(box(2.7, 0.2, 0.02), 0xffffff, 0, SLAB + 2.255, 1.063), part(box(2.7, 0.2, 0.02), 0xffffff, 0, SLAB + 1.945, -0.863)]);
 const FOLDED = extrude([[-0.19, -0.005], [0.19, -0.005], [0.19, 0.005], [-0.19, 0.005]], 0.32, 0.02);   // a folded garment: soft rounded edges
-const GOODS = (() => {
+// the goods on a stall: fruit, greens or folded clothes. `lo`: the same goods, made of a few faces, for further off
+const goodsOf = (lo) => {
   const fruit = [], veg = [], cloth = [];
   const r = seeded(77);
   for (let k = 0; k < 26; k++) {
     const x = -0.95 + (k % 9) * 0.24 + r() * 0.05, z = -0.3 + Math.floor(k / 9) * 0.28;
-    fruit.push(part(new THREE.SphereGeometry(0.075 + r() * 0.025, 9, 6), pickOf(r, [0xf08c1e, 0xe6c22c, 0xc8242a, 0x7cb342, 0xf2a03a]), x, SLAB + 0.88 + r() * 0.03, z));
+    fruit.push(part(new THREE.SphereGeometry(0.075 + r() * 0.025, lo ? 5 : 9, lo ? 3 : 6), pickOf(r, [0xf08c1e, 0xe6c22c, 0xc8242a, 0x7cb342, 0xf2a03a]), x, SLAB + 0.88 + r() * 0.03, z));
   }
   for (let k = 0; k < 12; k++) {
     const x = -0.95 + (k % 6) * 0.38, z = -0.22 + Math.floor(k / 6) * 0.42;
-    if (k % 3 === 0) veg.push(part(new THREE.SphereGeometry(0.13, 10, 7), 0x8fc25a, x, SLAB + 0.9, z, 0, 0, 0, 1, 0.8, 1));   // cabbages
-    else for (let s = 0; s < 4; s++) veg.push(part(cyl(0.02, 0.025, 0.36, 5), pickOf(r, [0x3f8f3a, 0x5aa83f, 0x2f7a33]), x + (s - 1.5) * 0.04, SLAB + 0.83, z, Math.PI / 2 - 0.1, 0, r() * 0.3));   // bundles of greens
+    if (k % 3 === 0) veg.push(part(new THREE.SphereGeometry(0.13, lo ? 6 : 10, lo ? 4 : 7), 0x8fc25a, x, SLAB + 0.9, z, 0, 0, 0, 1, 0.8, 1));   // cabbages
+    else for (let s = 0; s < 4; s++) {   // bundles of greens (far off: one block for the bundle)
+      const c = pickOf(r, [0x3f8f3a, 0x5aa83f, 0x2f7a33]), rz = r() * 0.3;
+      if (!lo) veg.push(part(cyl(0.02, 0.025, 0.36, 5), c, x + (s - 1.5) * 0.04, SLAB + 0.83, z, Math.PI / 2 - 0.1, 0, rz));
+      else if (s === 0) veg.push(part(box(0.18, 0.05, 0.36), c, x, SLAB + 0.83, z));
+    }
   }
   for (let k = 0; k < 8; k++) {
     const x = -0.85 + (k % 4) * 0.56, z = -0.2 + Math.floor(k / 4) * 0.42, h = 3 + Math.floor(r() * 4);
-    for (let s = 0; s < h; s++) cloth.push(part(FOLDED.clone(), pickOf(r, [0xc0392b, 0x2e86c1, 0xf1c40f, 0x8e44ad, 0xe67e22, 0x16a085, 0xecf0f1]), x, SLAB + 0.84 + s * 0.052, z, 0, (r() - 0.5) * 0.15, 0));
+    for (let s = 0; s < h; s++) {
+      const c = pickOf(r, [0xc0392b, 0x2e86c1, 0xf1c40f, 0x8e44ad, 0xe67e22, 0x16a085, 0xecf0f1]), ry = (r() - 0.5) * 0.15;
+      cloth.push(part(lo ? box(0.38, 0.05, 0.32) : FOLDED.clone(), c, x, SLAB + 0.84 + s * 0.052 + (lo ? 0.005 : 0), z, 0, ry, 0));
+    }
   }
   return [merge(fruit), merge(veg), merge(cloth)];
-})();
+};
+const GOODS = goodsOf(false), GOODS_FAR = goodsOf(true);
+const GOODS_NEAR = 24;   // metres: the full goods within this, the plain ones out to the stalls' detail distance
 // a vendor's bicycle piled with flowers or fruit (facing +x)
 const VENDOR_BIKE = (() => {
   const frame = (c) => [
@@ -659,6 +669,7 @@ export function createStreetLife(host, street) {
   }
 
   // ---- the market: on the park nearest the company, rows of stalls under tarps
+  const goodsCells = new Map();
   const market = (() => {
     const park = [...(city.parks || [])].sort((a, b) => Math.hypot(a.x - G.cx, a.z - G.cz) - Math.hypot(b.x - G.cx, b.z - G.cz))[0];
     if (!park) return null;
@@ -677,7 +688,9 @@ export function createStreetLife(host, street) {
         const m = at(wx, 0, wz, face);
         add(STALL, MAT.vc, m);
         add(TARP, MAT.tarp, m, new THREE.Color(pickOf(r, TARPS)), { shadow: true });
-        add(GOODS[Math.floor(r() * 3)], MAT.vc, m, null, { detail: true, shadow: false });
+        const gk = Math.floor(r() * 3), gc = `${Math.floor(wx / 12)},${Math.floor(wz / 12)}`;   // the goods: in cells of 12 m, near or far version
+        if (!goodsCells.has(gc)) goodsCells.set(gc, { pts: [], lists: [[], [], []] });
+        goodsCells.get(gc).lists[gk].push(m); goodsCells.get(gc).pts.push(new THREE.Vector3(wx, 0, wz));
         wallBox(wx - 1.3, wz - 0.75, wx + 1.3, wz + 0.75, 'market');
         stallsAt.push({ x: wx, z: wz, face, seller: { x: wx, z: wz - Math.cos(face) * 1.0 } });
       }
@@ -686,6 +699,22 @@ export function createStreetLife(host, street) {
     return { park, stalls: stallsAt, aisles, gate: new THREE.Vector3(park.x, 0, park.z + A + 1.2) };
   })();
 
+  // the market's goods: each cell a near and a far batch per kind, swapped by distance (see the frame)
+  const goodsList = [];
+  for (const cell of goodsCells.values()) {
+    const at = cell.pts.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / cell.pts.length), near = new THREE.Group(), far = new THREE.Group();
+    cell.lists.forEach((list, k) => {
+      if (!list.length) return;
+      for (const [geo, grp] of [[GOODS[k], near], [GOODS_FAR[k], far]]) {
+        const im = new THREE.InstancedMesh(geo, MAT.vc, list.length);
+        list.forEach((m, i) => im.setMatrixAt(i, m));
+        im.castShadow = false; im.receiveShadow = true; im.computeBoundingSphere();
+        grp.add(im);
+      }
+    });
+    root.add(near, far);
+    goodsList.push({ at, r: Math.max(...cell.pts.map((p) => p.distanceTo(at))) + 1.5, near, far });
+  }
   // build the batches: one instanced mesh per shape per square
   const squareList = [];
   for (const sq of squares.values()) {
@@ -1178,6 +1207,7 @@ export function createStreetLife(host, street) {
         const d = Math.hypot(sq.at.x - cam.x, sq.at.z - cam.z) - sq.r;
         sq.group.visible = d < far; sq.detail.visible = d < 90;   // the small things on the stalls: specks past that
       }
+      for (const g of goodsList) { const d = Math.hypot(g.at.x - cam.x, g.at.z - cam.z) - g.r; g.near.visible = d < GOODS_NEAR; g.far.visible = d >= GOODS_NEAR && d < 90; }
       sortParked(dt);
       updateBikes(dt);
       updatePool(dt, out);
