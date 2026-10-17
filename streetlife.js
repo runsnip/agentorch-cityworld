@@ -533,6 +533,7 @@ const SIGN_LOOKS = [{ board: 0xf6d34a, ink: '#c4161c' }, { board: 0xf4efe4, ink:
 // Squatting on a motorbike's seat, the way a xe ôm driver waits for a fare: the thighs folded up in front, the feet
 // on the seat under the hips, the forearms resting across the knees, the head up. Posed over the seated clip each
 // frame (host Character.pose), each limb aimed along a direction in the body's own frame, parents first.
+const hashKey = (k) => [...String(k)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
 export const SQUAT_LIFT = 0.3;   // about how much higher the hips are, folded, than sitting (the feet then set on the seat)
 export function squatPose(c) {
   const obj = c.body.object;
@@ -989,6 +990,10 @@ export function createStreetLife(host, street) {
       scene.add(c.root);
       c.root.position.set(s.x, s.y, s.z); c.root.rotation.set(0, s.face, 0); c.root.visible = true;
       c.target = null; c.faceTarget = null; c.seated = s.sit; c.play(s.sit ? 'sit' : 'idle');
+      // a xe ôm driver is a man in everyday clothes (the pooled person is re-dressed if need be)
+      if (s.xeom && !/(^|\/)(Male_|Delivery_Male|Construction_Male|Gardener_Male)/.test(String(c.modelFile || '').split('/').pop())) {
+        c.setModel(new URL(`./people/Male_Adult_${String(1 + (hashKey(s.key) % 10)).padStart(2, '0')}.glb`, import.meta.url).pathname);
+      }
       c.pose = s.squat ? squatPose : null; c.squatTop = s.squat ? SLAB + RIDER_AT.y + 0.53 : null;
       let gear = null;
       if (s.helmet) { gear = new THREE.Mesh(HELMET, helmetMat(pickOf(Math.random, HELMETS))); gear.rotation.y = s.face - Math.PI / 2; root.add(gear); }
