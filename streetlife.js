@@ -4,7 +4,7 @@
 // bicycles piled with flowers or fruit, a market on a square, motorbike-taxi drivers calling out at the corners.
 //
 // All of it is real geometry. The static things are batched per two-block square (hidden past the haze, small
-// details past 130 m) and are walls (host.addWalls), so the CEO, the assistant and a driven car stop at them and
+// details past 90 m) and are walls (host.addWalls), so the CEO, the assistant and a driven car stop at them and
 // bumping them gets a word. The people in it come from the model library, only near the CEO.
 //
 // createStreetLife(host, street) → { update(dt) }
@@ -701,9 +701,10 @@ export function createStreetLife(host, street) {
   }
   // the parked bikes, drawn by distance: the full model within BIKE_NEAR, simpler ones further off; only those in
   // view (a margin round it) and short of the haze. Re-sorted a few times a second while the camera moves.
-  const bikeTiers = [BIKE, BIKE_FAR, BIKE_DIST].map((B) => {
+  // (only the near ones cast a shadow: the sun's shadow box round the player reaches no further than BIKE_NEAR)
+  const bikeTiers = [BIKE, BIKE_FAR, BIKE_DIST].map((B, tier) => {
     const n = Math.max(1, parked.length), T = { paint: new THREE.InstancedMesh(B.paint, MAT.paint, n), rest: new THREE.InstancedMesh(B.rest, MAT.vc, n) };
-    for (const im of [T.paint, T.rest]) { im.count = 0; im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true; root.add(im); }
+    for (const im of [T.paint, T.rest]) { im.count = 0; im.frustumCulled = false; im.castShadow = tier === 0; im.receiveShadow = true; root.add(im); }
     T.paint.setColorAt(0, new THREE.Color(1, 1, 1));
     return T;
   });
@@ -1175,7 +1176,7 @@ export function createStreetLife(host, street) {
       const cam = camera.position, far = (scene.fog?.far ?? 320) + 10, out = host.isOutdoors() || !!street?.driving;
       for (const sq of squareList) {
         const d = Math.hypot(sq.at.x - cam.x, sq.at.z - cam.z) - sq.r;
-        sq.group.visible = d < far; sq.detail.visible = d < 130;
+        sq.group.visible = d < far; sq.detail.visible = d < 90;   // the small things on the stalls: specks past that
       }
       sortParked(dt);
       updateBikes(dt);
