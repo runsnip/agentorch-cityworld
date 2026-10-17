@@ -1012,6 +1012,10 @@ export function createStreetLife(host, street) {
       const d = (c.heading ?? 0) - b.heading, sn = Math.abs(Math.sin(d)), cs = Math.abs(Math.cos(d));
       list.push({ pos: c.group.position, w: 2.3 * sn + 0.92 * cs + 0.1, l: 2.3 * cs + 0.92 * sn + 0.2 });
     }
+    for (const c of street?.parkedNear?.(b.group.position, 16) || []) {   // cars parked at the kerb are in the way too
+      const d = c.heading - b.heading, sn = Math.abs(Math.sin(d)), cs = Math.abs(Math.cos(d));
+      list.push({ pos: c.group.position, w: 2.3 * sn + 0.92 * cs + 0.1, l: 2.3 * cs + 0.92 * sn + 0.2 });
+    }
     for (const o of bikes) if (o !== b) list.push({ pos: o.group.position, w: 0.45, l: 1.0 });
     if (!street?.driving) list.push({ pos: player.root.position, w: 0.45, l: 0.4, me: true });
     const aide = host.companion?.();

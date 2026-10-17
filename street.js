@@ -287,6 +287,7 @@ export function createStreet(host) {
     }
   }
   const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  const parkedBoxes = parked.map((c) => ({ group: { position: new THREE.Vector3(c.x, 0, c.z) }, heading: c.a, p: c }));
   // take parked car i off the kerb: a real car, its own collision box gone
   function unpark(c) {
     c.gone = true;
@@ -658,7 +659,14 @@ export function createStreet(host) {
     pop, pick,
     addRoadUsers(fn) { roadUsers.push(fn); },
     // push a point of radius r out of every car (true if it was inside one): bikes use it, nothing goes through a car
-    outOfCars(p, r) { let hit = false; for (const car of cars) if (outOfCar(p, car, r)) hit = true; return hit; },
+    outOfCars(p, r) {
+      let hit = false;
+      for (const car of cars) if (outOfCar(p, car, r)) hit = true;
+      for (const c of parkedBoxes) if (!c.p.gone && Math.abs(c.group.position.x - p.x) < 4 && Math.abs(c.group.position.z - p.z) < 4 && outOfCar(p, c, r)) hit = true;
+      return hit;
+    },
+    // the cars parked along the kerbs, as boxes like the moving ones ({ group: { position }, heading }); unparked ones gone
+    parkedNear(p, d) { return parkedBoxes.filter((c) => !c.p.gone && Math.abs(c.group.position.x - p.x) < d && Math.abs(c.group.position.z - p.z) < d); },
     update(dt) {
       honk -= dt;
       updatePops(dt);
