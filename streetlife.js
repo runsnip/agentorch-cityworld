@@ -343,6 +343,74 @@ const CART = merge([
   part(new THREE.SphereGeometry(0.1, 10, 6), 0xf3ead2, -0.05, SLAB + 1.04, -0.1, 0, 0, 0, 1, 0.45, 1),
 ]);
 const CART_GLASS = part(box(1.18, 0.4, 0.58), 0xffffff, -0.05, SLAB + 1.11, 0);
+// What a stall serves decides its cart and what's on its tables (the dish → SERVING kind, below).
+// A cart's body (stainless, cupboard doors, wheels) without the glass case and the pot:
+const CART_BODY = merge([
+  part(box(1.25, 0.72, 0.62), 0xc5c9ce, 0, SLAB + 0.5, 0), part(box(1.29, 0.04, 0.66), 0x8b5a2b, 0, SLAB + 0.88, 0), part(box(1.25, 0.05, 0.62), 0x7d8287, 0, SLAB + 0.16, 0),
+  ...[-1, 1].flatMap((sd) => [-0.3, 0.3].flatMap((x) => [part(box(0.56, 0.52, 0.012), 0xb3b8be, x, SLAB + 0.5, sd * 0.316),
+    rod([x + (x < 0 ? 0.2 : -0.2), SLAB + 0.42, sd * 0.33], [x + (x < 0 ? 0.2 : -0.2), SLAB + 0.6, sd * 0.33], 0.008, 0x6d7177)])),
+  ...[[-0.5, 0.33], [0.5, 0.33], [-0.5, -0.33], [0.5, -0.33]].map(([x, z]) => part(new THREE.TorusGeometry(0.12, 0.035, 6, 14), 0x1b1b1b, x, SLAB + 0.12, z)),
+]);
+// a sugarcane press: a steel housing with two ribbed rollers and a crank wheel at the cart's end, a tray under its
+// spout, a bundle of peeled canes standing in a bucket, an ice box, a stack of cups, kumquats in a bowl
+const CANE_TOP = merge([
+  part(box(0.42, 0.34, 0.36), 0x9aa0a6, 0.32, SLAB + 1.07, 0), part(box(0.44, 0.03, 0.38), 0x7d8287, 0.32, SLAB + 1.25, 0),
+  ...[-0.06, 0.06].map((y) => part(cyl(0.055, 0.055, 0.3, 14), 0xc9cdd2, 0.32, SLAB + 1.07 + y, 0, Math.PI / 2, 0, 0)),
+  part(new THREE.TorusGeometry(0.17, 0.018, 6, 20), 0x3a3d42, 0.32, SLAB + 1.07, 0.24), part(cyl(0.015, 0.015, 0.2, 6), 0x3a3d42, 0.32, SLAB + 1.07, 0.24, Math.PI / 2, 0, 0),
+  rod([0.32, SLAB + 1.07, 0.24], [0.32 + 0.17, SLAB + 1.07, 0.24], 0.012, 0x3a3d42), part(cyl(0.02, 0.02, 0.1, 6), 0xd23b2b, 0.49, SLAB + 1.07, 0.3, Math.PI / 2, 0, 0),
+  part(box(0.2, 0.03, 0.14), 0xb3b8be, 0.32, SLAB + 0.92, -0.24), part(box(0.05, 0.04, 0.08), 0x9aa0a6, 0.32, SLAB + 0.98, -0.2),
+  part(cyl(0.12, 0.1, 0.28, 14), 0x2f6fd8, -0.42, SLAB + 1.04, -0.12),
+  ...Array.from({ length: 11 }, (_, i) => { const a = i * 2.4, r = 0.03 + (i % 3) * 0.025;
+    return part(cyl(0.017, 0.017, 1.15 + (i % 4) * 0.08, 7), i % 2 ? 0xd9d07a : 0xc4c46a, -0.42 + Math.cos(a) * r, SLAB + 1.4, -0.12 + Math.sin(a) * r, Math.cos(a) * 0.05, 0, Math.sin(a) * 0.05); }),
+  part(box(0.3, 0.2, 0.24), 0xf4f4f2, -0.05, SLAB + 1.0, 0.12), part(box(0.31, 0.03, 0.25), 0x2f6fd8, -0.05, SLAB + 1.115, 0.12),
+  ...[0, 1, 2, 3].map((i) => part(shell([[0, 0], [0.033, 0], [0.04, 0.12], [0.036, 0.12], [0.03, 0.006], [0, 0.006]], 12), 0xf2f2f2, -0.05, SLAB + 0.9 + i * 0.012, -0.16)),
+  part(cyl(0.08, 0.06, 0.06, 12), 0xe9e3d6, 0.06, SLAB + 0.93, -0.18),
+  ...[-0.02, 0.02, 0.0].map((d, i) => part(new THREE.SphereGeometry(0.02, 8, 6), 0x7cb342, 0.06 + d, SLAB + 0.97, -0.18 + (i - 1) * 0.02)),
+]);
+// coffee: a kettle on a burner, a row of drip filters over glasses, a big jar of beans, glasses stacked
+const COFFEE_TOP = merge([
+  part(cyl(0.11, 0.13, 0.08, 14), 0x2b2b2b, 0.36, SLAB + 0.94, 0), part(shell([[0, 0], [0.12, 0], [0.13, 0.12], [0.08, 0.2], [0.03, 0.22], [0, 0.22]], 16), 0x9aa0a6, 0.36, SLAB + 0.98, 0),
+  rod([0.46, SLAB + 1.06, 0], [0.56, SLAB + 1.16, 0], 0.014, 0x9aa0a6),
+  ...[-0.35, -0.2, -0.05, 0.1].flatMap((x) => [part(shell([[0, 0], [0.03, 0], [0.034, 0.1], [0.03, 0.1], [0.026, 0.006], [0, 0.006]], 12), 0xeaf4fa, x, SLAB + 0.9, 0.12),
+    part(cyl(0.028, 0.028, 0.07, 10), 0x3a2312, x, SLAB + 0.935, 0.12),
+    part(cyl(0.04, 0.034, 0.06, 12), 0xb8bcc2, x, SLAB + 1.03, 0.12), part(cyl(0.05, 0.05, 0.006, 12), 0xb8bcc2, x, SLAB + 1.003, 0.12)]),
+  part(cyl(0.09, 0.09, 0.26, 14), 0xf4f1ea, -0.4, SLAB + 1.03, -0.15), part(cyl(0.08, 0.08, 0.2, 12), 0x5b3315, -0.4, SLAB + 1.02, -0.15),
+]);
+// chè: rows of tall glass jars of colourful sweet soups, ladles, a stack of cups
+const CHE_TOP = merge([
+  ...[[-0.42, -0.1], [-0.22, -0.1], [-0.02, -0.1], [0.18, -0.1], [-0.32, 0.12], [-0.12, 0.12], [0.08, 0.12], [0.28, 0.12]].flatMap(([x, z], i) => [
+    part(cyl(0.075, 0.075, 0.2, 14), [0x5a8a3a, 0xc98fb8, 0xf0e6c8, 0x8a3b2b, 0xe6b84a, 0x3b5a8a, 0xf4f1ea, 0x6b8a3a][i], x, SLAB + 1.0, z),
+    part(cyl(0.08, 0.08, 0.02, 14), 0x9aa0a6, x, SLAB + 1.11, z)]),
+  part(cyl(0.04, 0.035, 0.12, 12), 0xf2f2f2, 0.45, SLAB + 0.96, -0.18),
+]);
+// a cooked-rice or sticky-rice cart: a covered steamer, a grill with chops on it for cơm tấm
+const RICE_TOP = merge([
+  part(cyl(0.18, 0.18, 0.22, 16), 0x9aa0a6, 0.36, SLAB + 1.01, 0), part(shell([[0, 0], [0.19, 0], [0.12, 0.08], [0.02, 0.1], [0, 0.1]], 16), 0x8a8f94, 0.36, SLAB + 1.12, 0),
+  part(box(0.46, 0.06, 0.3), 0x2b2b2b, -0.3, SLAB + 0.93, 0.05), ...[-0.42, -0.3, -0.18].map((x) => part(box(0.09, 0.012, 0.07), 0x9b4b26, x, SLAB + 0.97, 0.05)),
+  ...[0, 1, 2].map((i) => part(cyl(0.12, 0.1, 0.012, 16), 0xf3efe6, 0.0, SLAB + 0.9 + i * 0.014, -0.18)),
+]);
+// a bread cart: the glass case with loaves stacked in it, pâté and cold cuts on the board
+const BREAD_TOP = merge([
+  ...Array.from({ length: 12 }, (_, i) => part(new THREE.CapsuleGeometry(0.035, 0.18, 4, 8), 0xd29a52, -0.4 + (i % 6) * 0.15, SLAB + 0.94 + Math.floor(i / 6) * 0.06, -0.08 + Math.floor(i / 6) * 0.06, 0, 0, Math.PI / 2)),
+  part(cyl(0.08, 0.08, 0.06, 12), 0x8b5a2b, 0.38, SLAB + 0.93, 0.15), part(box(0.2, 0.03, 0.14), 0xd98c8c, 0.35, SLAB + 0.92, -0.12),
+]);
+// table tops: bowls (noodle soup), plates (rice, bread), glasses (drinks)
+const PLATES_TOP = merge([
+  ...[[-0.15, -0.13], [0.16, 0.12]].map(([x, z]) => part(shell([[0, 0], [0.1, 0], [0.12, 0.012], [0.125, 0.018], [0.11, 0.012], [0, 0.008]], 18), 0xf3efe6, x, 0.54, z)),
+  part(box(0.12, 0.01, 0.07), 0x8b5a2b, 0, 0.545, 0), part(cyl(0.018, 0.018, 0.07, 10), 0xb5251d, -0.02, 0.585, 0), part(cyl(0.018, 0.018, 0.07, 10), 0x6b3b17, 0.02, 0.585, 0),
+]);
+const glassesTop = (fill) => merge([
+  ...[[-0.15, -0.12], [0.14, 0.13], [0.16, -0.1]].flatMap(([x, z]) => [
+    part(shell([[0, 0], [0.031, 0], [0.038, 0.128], [0.0345, 0.128], [0.028, 0.008], [0, 0.008]], 12), 0xeaf4fa, x, 0.54, z),
+    part(cyl(0.032, 0.027, 0.09, 10), fill, x, 0.594, z), rod([x + 0.01, 0.62, z], [x + 0.03, 0.72, z], 0.004, 0xe84a5f, 4)]),
+  part(box(0.12, 0.01, 0.07), 0x8b5a2b, 0, 0.545, 0),
+]);
+const STALL_LOOK = {
+  soup: { cart: [CART, CART_GLASS], table: TABLE_TOP, pot: true }, rice: { cart: [CART_BODY, RICE_TOP], table: PLATES_TOP, pot: true },
+  xoi: { cart: [CART_BODY, RICE_TOP], table: PLATES_TOP }, banhmi: { cart: [CART_BODY, BREAD_TOP, CART_GLASS], table: PLATES_TOP },
+  cane: { cart: [CART_BODY, CANE_TOP], table: glassesTop(0xd9d68a) }, coffee: { cart: [CART_BODY, COFFEE_TOP], table: glassesTop(0x3a2312) },
+  che: { cart: [CART_BODY, CHE_TOP], table: glassesTop(0xc98fb8) },
+};
 const UMBRELLA_POLE = merge([part(cyl(0.025, 0.025, 2.35, 8), 0xdcdcdc, 0, SLAB + 1.175, 0), part(cyl(0.2, 0.25, 0.08, 12), 0x8a8f94, 0, SLAB + 0.04, 0)]);
 const UMBRELLA = (() => {   // a canopy of alternating panels: a cloth with thickness and a hem, sagging between 12 ribs
   const g = shell([[0, 0.25], [0.06, 0.24], [0.4, 0.13], [0.85, -0.03], [1.35, -0.21], [1.37, -0.25], [1.34, -0.26], [0.84, -0.06], [0.39, 0.1], [0.06, 0.2], [0, 0.2]], 48).toNonIndexed();
@@ -661,14 +729,12 @@ export function createStreetLife(host, street) {
           const ry = faceStreet(n), o = frame(bx, bz, n, u, DEEP);
           const L = (x, z) => { const c = Math.cos(ry), s = Math.sin(ry); return { x: o.x + x * c + z * s, z: o.z - x * s + z * c }; };   // local → world
           const color = new THREE.Color(pickOf(r, PLASTIC));
-          const cart = L(-0.75, 0.75);
-          add(CART, MAT.vc, at(cart.x, 0, cart.z, ry));
-          add(CART_GLASS, MAT.glass, at(cart.x, 0, cart.z, ry), null, { detail: true, shadow: false });
+          const cart = L(-0.75, 0.75), tops = [];
           const seats = [];
           for (let tb = 0; tb < tables; tb++) {
             const c = L(-2.1 - tb * 1.35, 0.95);
             add(TABLE, MAT.plastic, at(c.x, SLAB, c.z, ry), color);
-            add(TABLE_TOP, MAT.vc, at(c.x, SLAB, c.z, ry), null, { detail: true, shadow: false });
+            tops.push(c);
             for (const [dx, dz] of [[0.5, 0], [-0.5, 0], [0, -0.5], [0, 0.5]]) {
               const s = L(-2.1 - tb * 1.35 + dx, 0.95 + dz);
               add(STOOL, MAT.plastic, at(s.x, SLAB, s.z, ry + r() * 0.3), color, { shadow: false });
@@ -680,8 +746,12 @@ export function createStreetLife(host, street) {
           const umr = r() * 6.28;
           add(UMBRELLA, MAT.vc2, at(um.x, 0, um.z, umr));
           add(UMBRELLA_RIBS, MAT.vc, at(um.x, 0, um.z, umr), null, { detail: true, shadow: false });
-          const pot = L(-0.75 + 0.42, 0.75);   // the pot sits at the cart's +x end
-          stalls.push({ seats, dish: pickOf(r, DISHES), sign: L(-0.75, 0.98), ry, pot, at: L(-len / 2, 1), front: L(-len / 2, 2.7) });
+          // what it sells decides the cart (a pot of broth, a cane press, a coffee kettle, jars of chè…) and the tables
+          const dish = pickOf(r, DISHES), look = STALL_LOOK[SERVING[dish] || 'soup'];
+          for (const g of look.cart) add(g, g === CART_GLASS ? MAT.glass : MAT.vc, at(cart.x, 0, cart.z, ry), null, g === CART_GLASS ? { detail: true, shadow: false } : undefined);
+          for (const c of tops) add(look.table, MAT.vc, at(c.x, SLAB, c.z, ry), null, { detail: true, shadow: false });
+          const pot = look.pot ? L(-0.75 + 0.42, 0.75) : null;   // the pot (steaming) sits at the cart's +x end
+          stalls.push({ seats, dish, sign: L(-0.75, 0.98), ry, pot, at: L(-len / 2, 1), front: L(-len / 2, 2.7) });
           boxAround([L(0.05, 0.05), L(-len + 0.05, 1.95)], 'stall');
           u += len + 3 + r() * 10;
         } else {   // a vendor's bicycle, piled high
