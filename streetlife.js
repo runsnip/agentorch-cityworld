@@ -530,6 +530,49 @@ const STALL_OWNERS = ['Cô Ba', 'Bà Tư', 'Chú Năm', 'Dì Bảy', 'Ông Sáu'
 // the sign's board and lettering, one look per stall
 const SIGN_LOOKS = [{ board: 0xf6d34a, ink: '#c4161c' }, { board: 0xf4efe4, ink: '#1f5aa8' }, { board: 0x1f6b3a, ink: '#fff4d6' }, { board: 0xb5251d, ink: '#ffe08a' }];
 
+// Squatting on a motorbike's seat, the way a xe ôm driver waits for a fare: the thighs folded up in front, the feet
+// on the seat under the hips, the forearms resting across the knees, the head up. Posed over the seated clip each
+// frame (host Character.pose), each limb aimed along a direction in the body's own frame, parents first.
+export const SQUAT_LIFT = 0.3;   // about how much higher the hips are, folded, than sitting (the feet then set on the seat)
+export function squatPose(c) {
+  const obj = c.body.object;
+  let b = obj.userData.squatBones;
+  if (!b) {
+    const find = (re) => { let f = null; obj.traverse((o) => { if (!f && o.isBone && re.test(o.name)) f = o; }); return f; };
+    const B = (nm, alt) => find(new RegExp(`(Bip01[_ ])?${nm}$`, 'i')) || find(alt);
+    b = obj.userData.squatBones = { pelvis: find(/Pelvis$|Hips$/i), spine: find(/Spine1?$/i), neck: find(/Neck$/i), head: find(/Head$/i),
+      lt: B('L_Thigh', /LeftUpLeg$/i), lc: B('L_Calf', /LeftLeg$/i), lf: B('L_Foot', /LeftFoot$/i),
+      rt: B('R_Thigh', /RightUpLeg$/i), rc: B('R_Calf', /RightLeg$/i), rf: B('R_Foot', /RightFoot$/i),
+      lu: B('L_UpperArm', /LeftArm$/i), lfa: B('L_Forearm', /LeftForeArm$/i), lh: B('L_Hand', /LeftHand$/i),
+      ru: B('R_UpperArm', /RightArm$/i), rfa: B('R_Forearm', /RightForeArm$/i), rh: B('R_Hand', /RightHand$/i) };
+  }
+  if (Object.values(b).some((x) => !x)) return;
+  obj.updateMatrixWorld(true);
+  const P = (o) => o.getWorldPosition(new THREE.Vector3());
+  const up = P(b.neck).sub(P(b.pelvis)).normalize();
+  const right = P(b.ru).sub(P(b.lu)); right.addScaledVector(up, -right.dot(up)).normalize();
+  const fwd = up.clone().cross(right).normalize();
+  const D = (u, rr, f) => new THREE.Vector3().addScaledVector(up, u).addScaledVector(right, rr).addScaledVector(fwd, f).normalize();
+  const aim = (bone, child, dir) => {
+    const from = P(child).sub(P(bone)).normalize(), q = new THREE.Quaternion().setFromUnitVectors(from, dir);
+    const parentQ = bone.parent.getWorldQuaternion(new THREE.Quaternion()), worldQ = bone.getWorldQuaternion(new THREE.Quaternion());
+    bone.quaternion.copy(parentQ.invert().multiply(q.multiply(worldQ)));
+    bone.updateMatrixWorld(true);
+  };
+  aim(b.spine, b.neck, D(0.78, 0, 0.62));                    // leaning forward over the knees
+  aim(b.neck, b.head, D(0.94, 0, 0.34));                      // looking up the street
+  aim(b.rt, b.rc, D(0.22, 0.22, 0.95)); aim(b.rc, b.rf, D(-0.55, 0.04, -0.83));   // knees up, heels back under the hips
+  aim(b.lt, b.lc, D(0.22, -0.22, 0.95)); aim(b.lc, b.lf, D(-0.55, -0.04, -0.83));
+  aim(b.ru, b.rfa, D(-0.62, 0.2, 0.76)); aim(b.rfa, b.rh, D(-0.2, -0.5, 0.84));   // forearms across the knees
+  aim(b.lu, b.lfa, D(-0.62, -0.2, 0.76)); aim(b.lfa, b.lh, D(-0.2, 0.5, 0.84));
+  // the feet on the seat: the whole body set down (or up) so the lower sole is on it
+  if (c.squatTop != null) {
+    const foot = Math.min(P(b.lf).y, P(b.rf).y) - 0.06;
+    obj.position.y += (c.squatTop - foot) / (c.root.scale.y || 1);
+    obj.updateMatrixWorld(true);
+  }
+}
+
 export function createStreetLife(host, street) {
   const { scene, city, player, camera } = host;
   const G = city.grid, CELL = 2 * G.pitch, inner = G.inner;
@@ -570,6 +613,7 @@ export function createStreetLife(host, street) {
   const SIDES = [[0, -1], [1, 0], [0, 1], [-1, 0]];
   const stalls = [], xeOmSpots = [], DISHES = ['Phở', 'Bún chả', 'Cơm tấm', 'Bánh mì', 'Cà phê', 'Bún bò', 'Hủ tiếu', 'Chè', 'Nước mía', 'Xôi'];
   const DEEP = inner / 2 - 4;    // the sidewalk's building edge, from the block's centre
+  const MOUTH = 3.9;             // the sidewalk kept clear either side of an alley's middle
   for (let i = -G.rings; i <= G.rings; i++) for (let j = -G.rings; j <= G.rings; j++) {
     if (!i && !j) continue;   // the company's own plaza stays clear
     const bx = G.cx + i * G.pitch, bz = G.cz + j * G.pitch;
@@ -590,9 +634,15 @@ export function createStreetLife(host, street) {
         const p = frame(bx, bz, n, -inner / 2 + 4.6, DEEP + 2.0);
         xeOmSpots.push({ x: p.x, z: p.z, n });
       }
+      // the alleys' mouths on this side stay clear (u: where each is along the side)
+      const mouths = (city.alleys || []).filter((m) => m.n[0] === n[0] && m.n[1] === n[1] && Math.abs((m.x - bx) * n[0] + (m.z - bz) * n[1] - DEEP) < 1 && Math.abs(-n[1] * (m.x - bx) + n[0] * (m.z - bz)) < inner / 2)
+        .map((m) => -n[1] * (m.x - bx) + n[0] * (m.z - bz))
+        .concat((city.spills || []).filter(([x, z]) => Math.abs((x - bx) * n[0] + (z - bz) * n[1] - DEEP - 0.7) < 0.8).map(([x, z]) => -n[1] * (x - bx) + n[0] * (z - bz)));
+      const clear = (u0, len) => { let v = u0; for (let k = 0; k < 3; k++) for (const um of mouths) if (v < um + MOUTH && v + len > um - MOUTH) v = um + MOUTH; return v; };
       for (const what of plan) {
         if (what === 'bikes') {   // a row of parked motorbikes, front wheels to the street
           const count = 3 + Math.floor(r() * 7), len = count * 0.78;
+          u = clear(u, len);
           if (u + len > end) break;
           const pts = [];
           for (let b = 0; b < count; b++) {
@@ -605,6 +655,7 @@ export function createStreetLife(host, street) {
           u += len + 3 + r() * 10;
         } else if (what === 'stall') {   // a food stall: the cart, two or three tables with their stools, an umbrella, the dish on a sign
           const tables = 2 + (r() < 0.4 ? 1 : 0), len = 1.95 + tables * 1.35 + 0.4;
+          u = clear(u, len);
           if (u + len > end) break;
           const ry = faceStreet(n), o = frame(bx, bz, n, u, DEEP);
           const L = (x, z) => { const c = Math.cos(ry), s = Math.sin(ry); return { x: o.x + x * c + z * s, z: o.z - x * s + z * c }; };   // local → world
@@ -633,6 +684,7 @@ export function createStreetLife(host, street) {
           boxAround([L(0.05, 0.05), L(-len + 0.05, 1.95)], 'stall');
           u += len + 3 + r() * 10;
         } else {   // a vendor's bicycle, piled high
+          u = clear(u, 2.2);
           if (u + 2.2 > end) break;
           const p = frame(bx, bz, n, u + 1.1, DEEP + 1.3);
           add(VENDOR_BIKE[r() < 0.5 ? 0 : 1], MAT.vc, at(p.x, SLAB, p.z, Math.atan2(-n[0], -n[1]) + (r() < 0.5 ? Math.PI : 0)));   // along the kerb
@@ -657,6 +709,14 @@ export function createStreetLife(host, street) {
       st.name ||= `${st.dish} ${si}`;
       taken.add(st.name);
     });
+  }
+  // at some alleys' mouths a xe ôm waits too, beside the mouth, squatting on his seat
+  const rx = seeded(4243);
+  for (const m of city.alleys || []) {
+    if (rx() > 0.32) continue;
+    const bx = G.cx + Math.round((m.x - G.cx) / G.pitch) * G.pitch, bz = G.cz + Math.round((m.z - G.cz) / G.pitch) * G.pitch, n = m.n;
+    const um = -n[1] * (m.x - bx) + n[0] * (m.z - bz), p = frame(bx, bz, n, um + (rx() < 0.5 ? -1 : 1) * (m.half + 1.05), DEEP + 1.2);
+    xeOmSpots.push({ x: p.x, z: p.z, n, squat: true });
   }
   // xe ôm bikes: parked along the kerb side near the corner, the driver sitting on it
   for (const s of xeOmSpots) {
@@ -813,7 +873,7 @@ export function createStreetLife(host, street) {
 
   // ---- the people: from the model library, near the CEO only
   const spawn = (name) => host.spawnPerson?.(name);
-  const hide = (c) => { if (c) { c.root.visible = false; scene.add(c.root); } };
+  const hide = (c) => { if (c) { c.root.visible = false; c.pose = null; scene.add(c.root); } };
   // a helmet or a straw hat that follows a character's head
   const headOf = (c) => {
     if (c.headBone !== undefined) return c.headBone;
@@ -836,7 +896,7 @@ export function createStreetLife(host, street) {
   // seated people (customers at the stalls, sellers at the market, the xe ôm drivers): a pool, placed at the
   // nearest free seats; far ones are left empty
   const pool = { free: [], used: new Map(), made: 0 };
-  const POOL_MAX = 22, SEAT_R = 85;
+  const POOL_MAX = 25, SEAT_R = 85, SHOP_R = 40;   // the shops' people only when you're close by
   const seatsAll = [];
   stalls.forEach((s, si) => {
     s.seats.forEach((st, k) => { if ((si * 7 + k) % 3 !== 1) seatsAll.push({ key: `s${si}.${k}`, x: st.x, z: st.z, face: st.face, sit: true, y: 0 }); });
@@ -845,9 +905,18 @@ export function createStreetLife(host, street) {
   xeOmSpots.forEach((s, k) => {
     const c = Math.cos(s.ry), sn = Math.sin(s.ry);
     // the rider's root on the bike's seat: RIDER_AT turned with the bike
-    seatsAll.push({ key: `x${k}`, x: s.x + RIDER_AT.x * c, z: s.z - RIDER_AT.x * sn, face: s.ry + Math.PI / 2, sit: true, y: SLAB + RIDER_AT.y, helmet: true, xeom: s });
+    // (squatting: the hips over the seat by the folded legs' height, the root raised with them; see squatPose)
+    const ra = s.squat ? RIDER_AT.x + 0.12 : RIDER_AT.x;
+    seatsAll.push({ key: `x${k}`, x: s.x + ra * c, z: s.z - ra * sn, face: s.ry + Math.PI / 2, sit: true, y: SLAB + RIDER_AT.y + (s.squat ? SQUAT_LIFT : 0), helmet: !s.squat, xeom: s, squat: s.squat });
   });
   if (market) market.stalls.forEach((s, k) => { if (k % 2 === 0) seatsAll.push({ key: `m${k}`, x: s.seller.x, z: s.seller.z, face: s.face, sit: false, y: SLAB }); });
+  // the shops one walks into (city.shops): the keeper behind the counter, a customer or two at the shelves (now and
+  // then going over to the counter and back), diners on some of an eatery's stools
+  (city.shops || []).forEach((sh, si) => {
+    seatsAll.push({ key: `k${si}`, x: sh.staff.x, z: sh.staff.z, face: sh.staff.face, sit: false, y: SLAB, inShop: true });
+    sh.browse.forEach((b, k) => { if ((si + k) % 3 !== 2) seatsAll.push({ key: `b${si}.${k}`, x: b.x, z: b.z, face: b.face, sit: false, y: SLAB, alt: b.alt, inShop: true }); });
+    sh.seats.forEach((st, k) => { if ((si * 5 + k) % 3 === 0) seatsAll.push({ key: `d${si}.${k}`, x: st.x, z: st.z, face: st.face, sit: true, y: 0, inShop: true }); });
+  });
   // the stools left empty are the CEO's to sit on (F, host.addSeats): they order the stall's dish and a bowl comes
   // out to the table in front of them, steaming; it's cleared when they get up
   const bowls = [], orders = [];   // orders: each stool's order waiting on the app's payment
@@ -894,12 +963,21 @@ export function createStreetLife(host, street) {
   const frustum = new THREE.Frustum(), _vp = new THREE.Matrix4(), _sph = new THREE.Sphere();
   const inView = (x, z) => { _vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); frustum.setFromProjectionMatrix(_vp); return frustum.intersectsSphere(_sph.set(_h.set(x, 1, z), 1.2)); };
   let poolT = 0;
+  // customers who browse go to the counter and back now and then
+  function browsing(dt) {
+    for (const u of pool.used.values()) {
+      if (!u.s.alt || u.c.seated) continue;
+      if ((u.wait = (u.wait ?? 6 + Math.random() * 10) - dt) > 0) continue;
+      const to = u.away ? u.s : u.s.alt; u.away = !u.away; u.wait = 9 + Math.random() * 12;
+      u.c.walkTo(new THREE.Vector3(to.x, u.s.y, to.z), () => u.c.play('idle'), new THREE.Vector3(to.x + Math.sin(to.face), u.s.y, to.z + Math.cos(to.face)));
+    }
+  }
   function updatePool(dt, out) {
     if ((poolT -= dt) > 0) return;
     poolT = 0.6;
     const me = camera.position;
     if (!out) { for (const [k, u] of pool.used) { hide(u.c); u.gear?.removeFromParent(); pool.free.push(u.c); pool.used.delete(k); } return; }
-    const near = seatsAll.map((s) => ({ s, d: Math.hypot(s.x - me.x, s.z - me.z) })).filter((e) => e.d < SEAT_R).sort((a, b) => a.d - b.d).slice(0, POOL_MAX);
+    const near = seatsAll.map((s) => ({ s, d: Math.hypot(s.x - me.x, s.z - me.z) })).filter((e) => e.d < (e.s.inShop ? SHOP_R : SEAT_R)).sort((a, b) => a.d - b.d).slice(0, POOL_MAX);
     const keep = new Set(near.map((e) => e.s.key));
     for (const [k, u] of pool.used) if (!keep.has(k)) { hide(u.c); u.gear?.removeFromParent(); pool.free.push(u.c); pool.used.delete(k); }
     for (const { s, d } of near) {
@@ -911,6 +989,7 @@ export function createStreetLife(host, street) {
       scene.add(c.root);
       c.root.position.set(s.x, s.y, s.z); c.root.rotation.set(0, s.face, 0); c.root.visible = true;
       c.target = null; c.faceTarget = null; c.seated = s.sit; c.play(s.sit ? 'sit' : 'idle');
+      c.pose = s.squat ? squatPose : null; c.squatTop = s.squat ? SLAB + RIDER_AT.y + 0.53 : null;
       let gear = null;
       if (s.helmet) { gear = new THREE.Mesh(HELMET, helmetMat(pickOf(Math.random, HELMETS))); gear.rotation.y = s.face - Math.PI / 2; root.add(gear); }
       else if (s.hat) { gear = new THREE.Mesh(HAT, MAT.straw); root.add(gear); }
@@ -1214,7 +1293,7 @@ export function createStreetLife(host, street) {
       for (const g of goodsList) { const d = Math.hypot(g.at.x - cam.x, g.at.z - cam.z) - g.r; g.near.visible = d < GOODS_NEAR; g.far.visible = d >= GOODS_NEAR && d < 90; }
       sortParked(dt);
       updateBikes(dt);
-      updatePool(dt, out);
+      updatePool(dt, out); browsing(dt);
       if (out && vendors.length < VENDORS) addVendor();
       for (const v of vendors) {
         v.c.root.visible = out;
