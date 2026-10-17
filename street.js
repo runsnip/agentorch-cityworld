@@ -449,8 +449,8 @@ export function createStreet(host) {
   const controller = {
     update(dt, keys) {
       const car = drive, p = car.group.position;
-      const throttle = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
-      const steer = (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) - (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0);
+      const throttle = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
+      const steer = (keys.has('KeyA') ? 1 : 0) - (keys.has('KeyD') ? 1 : 0);
       const hand = keys.has('Space');
       if (throttle > 0) car.speed += (car.speed < 0 ? 14 : 6) * dt;
       else if (throttle < 0) car.speed -= (car.speed > 0 ? 14 : 4) * dt;
