@@ -1346,7 +1346,7 @@ export function createStreetLife(host, street) {
   let t0 = 0;
   return {
     // for the city's dangers (survival.js): where people crowd — the stalls and the market
-    get crowds() { return [...stalls.filter((s) => s.seats.length).map((s) => s.at), ...(market ? [new THREE.Vector3(market.park.x, 0, market.park.z)] : [])]; },
+    get crowds() { return [...stalls.filter((s) => s.seats.length).map((s) => new THREE.Vector3(s.at.x, 0, s.at.z)), ...(market ? [new THREE.Vector3(market.park.x, 0, market.park.z)] : [])]; },
     // the food stalls, by name, for today's missions (quests.js): where to stand to be at each one
     get shops() { return stalls.filter((s) => s.name).map((s) => ({ name: s.name, dish: s.dish, x: s.front.x, z: s.front.z })); },
     get marketArea() { return market ? { x: market.park.x, z: market.park.z, half: market.park.half } : null; },
