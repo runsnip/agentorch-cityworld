@@ -141,10 +141,19 @@ function markMesh() {
   return g;
 }
 
-export function createCityQuests({ scene, city, call, player, isOutdoors, track = () => {}, audio = null, usable = null, shops = () => [] }) {
+export function createCityQuests({ scene, city, call, player, isOutdoors, track = () => {}, audio = null, usable = null, shops = () => [], uiBusy = () => false }) {
   const group = new THREE.Group();
   scene.add(group);
   const chests = new Map();   // index → mesh
+  // a chest's light outlives it, dark, for the next chest: the number of lights in the scene never changes, or every
+  // material in the city is compiled again (seconds of a frozen game when a chest is opened)
+  const spare = [];
+  const retire = (m) => {
+    const l = m.userData.glow;
+    l.intensity = 0; l.position.set(m.position.x, 0.5, m.position.z);
+    group.add(l); spare.push(l);
+    group.remove(m);
+  };
   const marks = new Map();    // visit (and eat) mission id → mesh
   const eatAt = new Map();    // eat mission id → the stall picked for it today: { name, dish, x, z }
   let state = null, near = null, sinceReport = 0, inFlight = 0, shownWalk = 0, last = null, parksSeen = new Set(), time = 0, clockShown = '';
@@ -182,29 +191,34 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
   let folded = false, bookIcon = null;
   try { folded = localStorage.getItem('city-tracker-folded') === '1'; } catch { /* not kept */ }
   const fold = (on) => { folded = on; try { localStorage.setItem('city-tracker-folded', on ? '1' : '0'); } catch { /* not kept */ } audio?.sfx?.('click'); renderTracker(); };
+  // J folds and unfolds it too, while it's on screen
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'KeyJ' || e.repeat || e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+    if (!state || tracker.classList.contains('hidden') || uiBusy()) return;
+    e.preventDefault(); fold(!folded);
+  });
   function renderTracker() {
     if (!state) return;
     const done = state.quests.filter((q) => q.done).length, toOpen = state.quests.filter((q) => ready(q)).length;
     tracker.classList.toggle('folded', folded);
+    clockShown = left();
+    shownWalk = Math.floor(sinceReport);   // or update() redraws it every frame (and a click never lands on the button)
     if (folded) {
-      clockShown = left();
-      tracker.innerHTML = `<button class="ct-unfold" title="${t('Mở sổ nhiệm vụ')}"><span class="ct-book"></span><b>${done}/${state.quests.length}</b>${toOpen ? `<i class="ct-dot">${toOpen}</i>` : ''}</button>`;
+      tracker.innerHTML = `<button class="ct-unfold" title="${t('Mở sổ nhiệm vụ')} (J)"><span class="ct-book"></span><b>${done}/${state.quests.length}</b>${toOpen ? `<i class="ct-dot">${toOpen}</i>` : ''}</button>`;
       bookIcon ||= itemCanvas({ kind: 'book', id: 'book' });
       tracker.querySelector('.ct-book').append(bookIcon);
       tracker.querySelector('.ct-unfold').onclick = () => fold(false);
       return;
     }
-    clockShown = left();
     const chestsLeft = state.count - state.opened.length;
     // walking: what the app has counted plus the metres walked since the last report, so the bar moves as you go
     const have = (q) => (q.goal === 'walk' && !q.done ? Math.min(q.target, q.progress + Math.floor(inFlight + sinceReport)) : q.progress);
-    shownWalk = Math.floor(sinceReport);
     // many a day: a chest to open first, then what's under way, what's been claimed last; the list scrolls (and keeps
     // its place while it's redrawn)
     const order = (q) => (ready(q) ? 0 : q.claimed ? 2 : 1);
     const quests = state.quests.map((q, i) => [q, i]).sort((a, b) => order(a[0]) - order(b[0]) || a[1] - b[1]).map(([q]) => q);
     const scrolled = tracker.querySelector('.ct-list')?.scrollTop || 0;
-    tracker.innerHTML = `<div class="ct-head"><small>${t('Nhiệm vụ hôm nay')} · ${done}/${state.quests.length}</small><b class="ct-clock" title="${t('Hết ngày, nhiệm vụ chưa xong sẽ mất phần thưởng')}">${t('Còn {time}', { time: clockShown })}</b><button class="ct-fold" title="${t('Thu gọn')}"></button></div>
+    tracker.innerHTML = `<div class="ct-head"><small>${t('Nhiệm vụ hôm nay')} · ${done}/${state.quests.length}</small><b class="ct-clock" title="${t('Hết ngày, nhiệm vụ chưa xong sẽ mất phần thưởng')}">${t('Còn {time}', { time: clockShown })}</b><button class="ct-fold" title="${t('Thu gọn')} (J)"></button></div>
       ${toOpen > 1 ? `<button class="ct-claim-all">${t('Nhận tất cả ({n} rương)', { n: toOpen })}</button>` : ''}
       <div class="ct-list">${quests.map((q) => `<div class="ct-task r-${q.rarity}${q.done ? ' done' : ''}${detailId === q.id ? ' on' : ''}" data-q="${esc(q.id)}">
         <div class="ct-top"><span>${esc(q.name)}</span>${ready(q) ? `<button class="ct-claim" data-claim="${esc(q.id)}" title="${t('Mở rương nhận thưởng')}"></button>` : `<em class="ct-gift">${q.claimed ? '✓' : RARITY_NAME[q.rarity]}</em>`}</div>
@@ -359,7 +373,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
 
   // ---- today's chests, from the day's seed (the same places for the whole day)
   function placeChests() {
-    for (const m of chests.values()) group.remove(m);
+    for (const m of chests.values()) retire(m);
     chests.clear();
     if (!state || !city.spots.length) return;
     // spread out over the city: each one at least `apart` metres from the others (loosened if the city runs out)
@@ -378,6 +392,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       const [x, z] = spot;
       if (state.opened.includes(i)) continue;
       const m = chestMesh();
+      if (spare.length) { const l = spare.pop(); m.remove(m.userData.glow); l.position.set(0, 0.5, 0); m.add(l); m.userData.glow = l; }
       m.position.set(x, 0, z);
       group.add(m); chests.set(i, m);
       // clicking a chest opens it when it's within reach
@@ -422,7 +437,7 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
       state = msg;
       if (fresh) { placeChests(); parksSeen = new Set(); claiming.clear(); claimIcons.clear(); eatAt.clear(); }
       for (const q of msg.quests) if (q.claimed) { claiming.delete(q.id); claimIcons.delete(q.id); }
-      else for (const i of msg.opened) { const m = chests.get(i); if (m) { group.remove(m); chests.delete(i); } }
+      else for (const i of msg.opened) { const m = chests.get(i); if (m) { retire(m); chests.delete(i); } }
       placeMarks();
       renderTracker();
     },
@@ -473,12 +488,13 @@ export function createCityQuests({ scene, city, call, player, isOutdoors, track 
         if (m.userData.opening) {   // the lid swings open, the chest rises and the light fades out
           const o = m.userData.opening = Math.min(1, m.userData.opening + dt * 1.6);
           animateChest(m, time, i);
+          m.userData.glow.intensity *= 1 - o;
           m.userData.lid.rotation.x = -1.9 * Math.min(1, o * 2);
           m.userData.chest.position.y += o * 0.8;
           m.userData.chest.scale.setScalar(CHEST_SCALE * (1 - Math.max(0, o - 0.6) * 2.4));
           m.userData.beamMat.uniforms.uColor.value.multiplyScalar(0.96);
           m.userData.pool.material.opacity *= 1 - o;
-          if (o >= 1) { group.remove(m); chests.delete(i); }
+          if (o >= 1) { retire(m); chests.delete(i); }
           continue;
         }
         animateChest(m, time, i);

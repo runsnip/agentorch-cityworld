@@ -43,7 +43,7 @@ export async function install(host) {
   host.onFrame((dt) => life.update(dt));
 
   // walking outdoors counts for the quests, driving doesn't
-  const quests = createCityQuests({ scene: host.scene, city: host.city, call: host.callPy, player: host.player, isOutdoors: () => host.isOutdoors() && !street.driving, track: host.track, audio: host.audio, usable: host.usable, shops: () => life.shops });
+  const quests = createCityQuests({ scene: host.scene, city: host.city, call: host.callPy, player: host.player, isOutdoors: () => host.isOutdoors() && !street.driving, track: host.track, audio: host.audio, usable: host.usable, shops: () => life.shops, uiBusy: () => host.uiBusy?.() ?? false });
   host.on('city', (m) => quests.onState(m));
   host.on('city_reward', (m) => quests.onReward(m));
   host.onFrame((dt) => quests.update(dt));

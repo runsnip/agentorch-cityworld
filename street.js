@@ -192,7 +192,7 @@ export function createStreet(host) {
     c.root.scale.setScalar(1); c.seated = false;
     c.placeAt(at, player.root.position);
     c.play('sad');
-    pop(pick([t('Ơ, xe của tôi mà!'), t('Sếp cần thì sếp cứ lấy…'), t('Trời đất, cướp xe giữa ban ngày!')]), () => c.root.position, 'them');
+    pop(pick([t('Ơ, xe của tôi mà!'), t('Sếp cần thì sếp cứ lấy…'), t('Trời đất, cướp xe giữa ban ngày!')]), () => c.root.position, 'them', c);
     if (people.length >= PEOPLE + 6) { setTimeout(() => c.fade(0, 600, () => host.removePerson?.(c)), 2500); return; }
     setTimeout(() => { if (!c.disposed) joinSidewalk(addPerson(c)); }, 1800);
   }
@@ -349,7 +349,7 @@ export function createStreet(host) {
     // clicking them: they stop, turn to the CEO and say something
     host.usable?.(p.char.root, () => t('Chào <b>người đi đường</b>'), () => {
       p.char.target = null; p.char.faceTarget = player.root.position.clone(); p.pauseT = 2.5; p.char.play('wave');
-      pop(pick(HELLO), () => p.char.root.position, 'them');
+      pop(pick(HELLO), () => p.char.root.position, 'them', p.char);
     });
     people.push(p);
     if (!char) placePerson(p, false);
@@ -576,7 +576,12 @@ export function createStreet(host) {
   // ---- bumping into things: a word popping up over whoever says it, a stagger, the camera shaking
   const pops = [];
   const popLayer = document.createElement('div'); popLayer.id = 'city-pops'; document.body.append(popLayer);
-  function pop(text, at, kind = 'me') {
+  // read aloud too when the voice is on (Tab › Settings): by whoever says it — the CEO ('me'), the person passed
+  // in, or someone at that spot with no character of their own (a rider, a cook)
+  let voices = 0;
+  function pop(text, at, kind = 'me', who = null) {
+    if (!who && kind !== 'me') { const o = new THREE.Object3D(); o.position.copy(typeof at === 'function' ? at() : at); who = { name: `street${voices++ % 6}`, root: o }; }
+    host.speak?.(who || player, text);
     const el = document.createElement('div'); el.className = `city-pop ${kind}`; el.textContent = text;
     popLayer.append(el);
     pops.push({ el, at, t: 0 });
@@ -634,7 +639,7 @@ export function createStreet(host) {
       p.char.target = null; p.char.faceTarget = me.clone(); p.pauseT = hard ? 2.2 : 1.2;
       if (hard) { pos.addScaledVector(new THREE.Vector3(-dx / d, 0, -dz / d), 0.45); p.char.play('sad'); knock(new THREE.Vector3(-dx, 0, -dz).normalize(), 0.35); shake = 0.25; }
       else p.char.play('idle');
-      pop(pick(hard ? ANGRY : SORRY), () => pos, 'them');
+      pop(pick(hard ? ANGRY : SORRY), () => pos, 'them', p.char);
       sfx('bump_person');
       host.track?.('city_bump', { kind: hard ? 'person_hard' : 'person' });
     }

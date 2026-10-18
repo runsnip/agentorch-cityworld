@@ -117,7 +117,7 @@ export function createSurvival(host, street, life) {
   const roadX = (a) => G.cx + (a - G.rings - 0.5) * G.pitch, roadZ = (b) => G.cz + (b - G.rings - 0.5) * G.pitch;
   const me = () => player.root.position;
   const sfx = (n, o) => host.audio?.sfx(n, o);
-  const pop = (text, at, kind) => street.pop(text, at || (() => me()), kind);
+  const pop = (text, at, kind, who) => street.pop(text, at || (() => me()), kind, who);
   const busy = () => host.uiBusy?.() || false;
   const outdoorsOnFoot = () => host.isOutdoors() && !street.driving && !player.seat;
   const homeAt = () => host.home?.() || null;
@@ -537,7 +537,7 @@ export function createSurvival(host, street, life) {
     if (msg.kind === 'coins') {
       if (msg.recovered) { if (msg.ok) { banner(t('+{n} coin lấy lại được!', { n: msg.amount }), 'gain'); sfx('coin'); } return; }
       if (msg.ok) { if (pick) pick.taken = true; banner(t('−{n} coin! Bị móc túi rồi!', { n: msg.amount }), 'loss'); sfx('error'); }
-      else if (pick) { pop(t('Hừ, túi rỗng…'), () => pick?.c.root.position, 'them'); pick.phase = 'leave'; pick.t = 0; pick.marker?.removeFromParent(); pick.marker = null; }
+      else if (pick) { pop(t('Hừ, túi rỗng…'), () => pick?.c.root.position, 'them', pick?.c); pick.phase = 'leave'; pick.t = 0; pick.marker?.removeFromParent(); pick.marker = null; }
     }
   });
 

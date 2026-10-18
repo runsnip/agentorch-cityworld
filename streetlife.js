@@ -1234,7 +1234,7 @@ export function createStreetLife(host, street) {
         if (d < 0.95) {
           const away = me.clone().sub(p).setY(0).normalize();
           me.addScaledVector(away, 1.0); host.collide(me, 0.3); player.keys.clear();
-          street?.pop?.(pickOf(Math.random, LINES.hit), () => b.group.position, 'them');
+          street?.pop?.(pickOf(Math.random, LINES.hit), () => b.group.position, 'them', b.rider);
           host.audio?.sfx('bump_car');
           b.speed = 0; b.stopFor = 2;
         }
@@ -1253,7 +1253,7 @@ export function createStreetLife(host, street) {
     }
   }
   // the cars stop for the bikes, a driven car shoves them aside
-  street?.addRoadUsers?.(() => bikes.map((b) => ({ pos: b.group.position, r: 0.5, hit: (mine) => { b.speed = 0; b.stopFor = 2.5; if (mine) street?.pop?.(pickOf(Math.random, LINES.carHit), () => b.group.position, 'them'); } })));
+  street?.addRoadUsers?.(() => bikes.map((b) => ({ pos: b.group.position, r: 0.5, hit: (mine) => { b.speed = 0; b.stopFor = 2.5; if (mine) street?.pop?.(pickOf(Math.random, LINES.carHit), () => b.group.position, 'them', b.rider); } })));
 
   // ---- solid people and bikes: the CEO and the assistant can't walk through them; a word when bumped hard
   const LINES = {
@@ -1276,7 +1276,7 @@ export function createStreetLife(host, street) {
     lastPos = (lastPos || new THREE.Vector3()).copy(me);
     sayT -= dt;
     const out = host.isOutdoors() && !street?.driving;
-    const say = (list, at) => { if (sayT > 0) return; sayT = 1.8; street?.pop?.(pickOf(Math.random, list), at, 'them'); host.audio?.sfx('bump_person'); };
+    const say = (list, at, who) => { if (sayT > 0) return; sayT = 1.8; street?.pop?.(pickOf(Math.random, list), at, 'them', who); host.audio?.sfx('bump_person'); };
     for (const b of bikes) {   // a bike: two circles along it
       const p = b.group.position, fx = Math.cos(b.heading) * 0.45, fz = -Math.sin(b.heading) * 0.45;
       for (const s of [1, -1]) {
@@ -1291,19 +1291,19 @@ export function createStreetLife(host, street) {
         if (out && pushOut(me, p.x + fx * s, p.z + fz * s, s ? 0.62 : 0.55)) hit = true;
         if (aide) pushOut(aide.position, p.x + fx * s, p.z + fz * s, 0.6);
       }
-      if (hit && mySpeed > 3.2 && v.bumpT <= 0) { v.bumpT = 3; say(LINES.vendor, () => v.c.root.position); v.c.play('sad'); v.pause = Math.max(v.pause, 2); v.c.target = null; }
+      if (hit && mySpeed > 3.2 && v.bumpT <= 0) { v.bumpT = 3; say(LINES.vendor, () => v.c.root.position, v.c); v.c.play('sad'); v.pause = Math.max(v.pause, 2); v.c.target = null; }
       v.bumpT -= dt;
     }
     for (const u of pool.used.values()) {
       if (u.s.sit && !u.s.xeom) continue;   // customers sit inside their stall (already a wall)
       const p = u.c.root.position;
-      if (out && pushOut(me, p.x, p.z, 0.55) && !u.s.xeom && mySpeed > 3.2) say(LINES.shopper, () => p);
+      if (out && pushOut(me, p.x, p.z, 0.55) && !u.s.xeom && mySpeed > 3.2) say(LINES.shopper, () => p, u.c);
       if (aide) pushOut(aide.position, p.x, p.z, 0.55);
     }
     // the xe ôm drivers call out as the CEO walks by
     if (out) for (const u of pool.used.values()) {
       if (!u.s.xeom || performance.now() < u.called) continue;
-      if (Math.hypot(me.x - u.s.x, me.z - u.s.z) < 4.5) { u.called = performance.now() + 25000; street?.pop?.(pickOf(Math.random, LINES.xeom), () => u.c.root.position, 'them'); }
+      if (Math.hypot(me.x - u.s.x, me.z - u.s.z) < 4.5) { u.called = performance.now() + 25000; street?.pop?.(pickOf(Math.random, LINES.xeom), () => u.c.root.position, 'them', u.c); }
     }
   }
 
